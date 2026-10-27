@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Bookmarks
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.WbSunny
@@ -42,6 +43,10 @@ import app.vohcarb.auth.SignInViewModel
 import app.vohcarb.core.ui.VohcarbTheme
 import app.vohcarb.feed.FeedScreen
 import app.vohcarb.feed.FeedViewModel
+import app.vohcarb.groups.GroupScreen
+import app.vohcarb.groups.GroupViewModel
+import app.vohcarb.groups.GroupsScreen
+import app.vohcarb.groups.GroupsViewModel
 import app.vohcarb.practice.PracticeScreen
 import app.vohcarb.practice.PracticeViewModel
 import app.vohcarb.saved.SavedScreen
@@ -60,6 +65,8 @@ import kotlinx.serialization.Serializable
 @Serializable object SavedRoute
 @Serializable object PracticeRoute
 @Serializable object SettingsRoute
+@Serializable object GroupsRoute
+@Serializable data class GroupRoute(val id: Long)
 @Serializable data class WordRoute(val slug: String)
 @Serializable object SearchRoute
 @Serializable object CreditsRoute
@@ -70,6 +77,7 @@ private val tabs = listOf(
     Tab(TodayRoute, "Today", Icons.Outlined.WbSunny),
     Tab(SavedRoute, "Words", Icons.Outlined.Bookmarks),
     Tab(PracticeRoute, "Practice", Icons.Outlined.School),
+    Tab(GroupsRoute, "Groups", Icons.Outlined.Groups),
     Tab(SettingsRoute, "Settings", Icons.Outlined.Settings),
 )
 
@@ -123,6 +131,18 @@ private fun MainScreens(container: AppContainer) {
             composable<PracticeRoute> {
                 PracticeScreen(viewModel { PracticeViewModel(container.practice, container.sync) })
             }
+            composable<GroupsRoute> {
+                GroupsScreen(viewModel { GroupsViewModel(container.groups) }, onOpenGroup = { nav.navigate(GroupRoute(it)) })
+            }
+            composable<GroupRoute> { backStackEntry ->
+                val id = backStackEntry.toRoute<GroupRoute>().id
+                val me = container.sessions.session.value?.userId ?: 0
+                GroupScreen(
+                    viewModel { GroupViewModel(id, me, container.groups, container.catalog) },
+                    onBack = nav::popBackStack,
+                    onOpenWord = openWord,
+                )
+            }
             composable<SettingsRoute> {
                 SettingsScreen(
                     viewModel {
@@ -134,7 +154,11 @@ private fun MainScreens(container: AppContainer) {
             }
             composable<WordRoute> { backStackEntry ->
                 val slug = backStackEntry.toRoute<WordRoute>().slug
-                WordScreen(viewModel { WordViewModel(slug, container.words, container.catalog, container.progress) }, onBack = nav::popBackStack)
+                WordScreen(
+                    viewModel { WordViewModel(slug, container.words, container.catalog, container.progress) },
+                    groups = container.groups,
+                    onBack = nav::popBackStack,
+                )
             }
             composable<SearchRoute> {
                 SearchScreen(viewModel { SearchViewModel(container.catalog) }, onBack = nav::popBackStack, onOpenWord = openWord)

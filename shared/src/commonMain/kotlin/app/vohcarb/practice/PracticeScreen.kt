@@ -35,6 +35,7 @@ import app.vohcarb.core.ui.Load
 import app.vohcarb.core.ui.LoadContent
 import app.vohcarb.core.ui.LoadingBox
 import app.vohcarb.core.ui.MessageBox
+import app.vohcarb.core.ui.plural
 import app.vohcarb.practice.srs.Grade
 import app.vohcarb.sync.SyncEngine
 import app.vohcarb.word.Senses
@@ -297,5 +298,3 @@ private fun PracticeDone(done: PracticeState.Done, onContinue: () -> Unit) {
         TextButton(onClick = onContinue) { Text("Continue") }
     }
 }
-
-private fun plural(count: Long, noun: String) = "$count $noun${if (count == 1L) "" else "s"}"

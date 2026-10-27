@@ -8,6 +8,7 @@ import app.vohcarb.core.api.ApiClient
 import app.vohcarb.core.session.SessionStore
 import app.vohcarb.db.VohcarbDatabase
 import app.vohcarb.feed.FeedQueue
+import app.vohcarb.groups.GroupsApi
 import app.vohcarb.practice.PracticeApi
 import app.vohcarb.practice.PracticeRepository
 import app.vohcarb.progress.ProgressApi
@@ -37,6 +38,7 @@ class AppContainer(
     val auth = AuthApi(api, sessions)
     val catalog = CatalogApi(api)
     val user = UserApi(api)
+    val groups = GroupsApi(api)
     private val progressApi = ProgressApi(api)
     private val practiceApi = PracticeApi(api)
 

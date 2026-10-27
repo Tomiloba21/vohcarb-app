@@ -8,13 +8,20 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.GroupAdd
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -26,6 +33,8 @@ import app.vohcarb.catalog.WordDetailDto
 import app.vohcarb.core.api.userMessage
 import app.vohcarb.core.ui.Load
 import app.vohcarb.core.ui.LoadContent
+import app.vohcarb.groups.AddToGroupDialog
+import app.vohcarb.groups.GroupsApi
 import app.vohcarb.progress.ProgressRepository
 import app.vohcarb.progress.WordFlags
 import app.vohcarb.progress.WordStatePatch
@@ -82,8 +91,11 @@ class WordViewModel(
 }
 
 @Composable
-fun WordScreen(viewModel: WordViewModel, onBack: () -> Unit) {
+fun WordScreen(viewModel: WordViewModel, groups: GroupsApi, onBack: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    var addingToGroup by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -92,8 +104,16 @@ fun WordScreen(viewModel: WordViewModel, onBack: () -> Unit) {
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
+                actions = {
+                    if (state is Load.Ready) {
+                        IconButton(onClick = { addingToGroup = true }) {
+                            Icon(Icons.Outlined.GroupAdd, contentDescription = "Add to group")
+                        }
+                    }
+                },
             )
         },
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             LoadContent(state, onRetry = viewModel::load) { (word, flags) ->
@@ -114,5 +134,19 @@ fun WordScreen(viewModel: WordViewModel, onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    val ready = (state as? Load.Ready)?.value
+    if (addingToGroup && ready != null) {
+        AddToGroupDialog(
+            slug = ready.word.slug,
+            lemma = ready.word.lemma,
+            groups = groups,
+            onDismiss = { addingToGroup = false },
+            onDone = { message ->
+                addingToGroup = false
+                scope.launch { snackbar.showSnackbar(message) }
+            },
+        )
     }
 }

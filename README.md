@@ -50,6 +50,7 @@ Code in `shared/src/commonMain/kotlin/app/vohcarb/` is organised **by feature**,
 | `word` | The full word screen and the views shared with the feed |
 | `progress` | Saved / liked / known / seen flags: `ProgressRepository` on the phone, sync DTOs |
 | `saved` | **Words**: your saved, liked, known and seen lists |
+| `groups` | **Groups**: create/join with invite codes, shared word list, group word of the day, leaderboard, members |
 | `search` | Prefix search over the catalog |
 | `practice` | **Practice**: spaced-repetition quiz run on the phone (`PracticeRepository`, `srs/Scheduler.kt`) |
 | `settings` | **Settings**: level range, words per day, topics, reminder times; account; credits |
@@ -80,17 +81,18 @@ Screens read and write the phone's database (SQLDelight); `SyncEngine` keeps it 
 |---|---|
 | 1 | Project setup, dev sign-in, feed, word screen, saved lists, search, practice (online), settings, credits |
 | 2 | Offline first: SQLDelight database, sync engine, offline feed and practice, sync status in Settings |
+| 3 | Groups: create, join by code, share invites, shared words with notes, "Add to group" on any word, group word of the day, weekly/monthly leaderboard, owner tools (new code, remove member, delete) |
 
 Next, roughly in order:
 
-1. **Groups**: create/join with invite codes, shared word lists, group word of the day, leaderboard.
-2. **Home-screen widget** (Jetpack Glance) with the word of the day.
-3. **Push reminders** (FCM) once the Firebase project exists, and **Google Sign-In**. Background sync
+1. **Home-screen widget** (Jetpack Glance) with the word of the day.
+2. **Push reminders** (FCM) once the Firebase project exists, and **Google Sign-In**. Background sync
    (WorkManager) fits here too; today the app syncs while it's open.
-4. Themes and polish; iOS on a Mac.
+3. Themes and polish; iOS on a Mac.
 
-Known limits: user preferences still need a connection; the History list shows words whose details
-haven't been fetched yet by their slug.
+Known limits: groups and user preferences need a connection (groups are shared, live data, so they're
+fetched fresh rather than synced); the History list shows words whose details haven't been fetched yet by
+their slug; on iOS, "Share invite" will copy the text until a share sheet is added.
 
 ## Credits
 

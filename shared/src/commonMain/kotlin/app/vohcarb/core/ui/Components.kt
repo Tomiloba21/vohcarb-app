@@ -58,3 +58,8 @@ fun <T> LoadContent(load: Load<T>, onRetry: () -> Unit, content: @Composable (T)
         is Load.Ready -> content(load.value)
     }
 }
+
+/** "1 word", "3 words". */
+fun plural(count: Long, noun: String) = "$count $noun${if (count == 1L) "" else "s"}"
+
+fun plural(count: Int, noun: String) = plural(count.toLong(), noun)
