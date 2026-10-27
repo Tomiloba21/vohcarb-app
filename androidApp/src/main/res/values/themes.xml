@@ -1,0 +1,9 @@
+<resources>
+    <!-- Compose draws everything; this only sets the window before the first frame. -->
+    <style name="Theme.Vohcarb" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/background</item>
+    </style>
+
+    <color name="background">#FBF8F3</color>
+    <color name="ic_launcher_background">#2E3A59</color>
+</resources>
