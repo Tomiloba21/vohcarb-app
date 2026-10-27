@@ -15,7 +15,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,22 +28,23 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.vohcarb.catalog.CatalogApi
+import app.vohcarb.catalog.WordCache
 import app.vohcarb.catalog.WordDetailDto
-import app.vohcarb.core.api.userMessage
 import app.vohcarb.core.ui.LoadingBox
 import app.vohcarb.core.ui.MessageBox
-import app.vohcarb.progress.ProgressApi
+import app.vohcarb.progress.ProgressRepository
 import app.vohcarb.progress.WordFlags
 import app.vohcarb.progress.WordStatePatch
+import app.vohcarb.sync.SyncEngine
 import app.vohcarb.word.Senses
 import app.vohcarb.word.WordActions
 import app.vohcarb.word.WordHeader
-import kotlinx.coroutines.async
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -54,104 +54,102 @@ data class FeedState(
     val cards: List<FeedCard> = emptyList(),
     val flags: Map<String, WordFlags> = emptyMap(),
     val loading: Boolean = true,
-    val error: String? = null,
+    /** Set when there are no words to show and the last sync failed (e.g. offline). */
+    val offlineMessage: String? = null,
     val loadingMore: Boolean = false,
-    /** The server had no more unseen words for the user's preferences. */
+    /** No more unseen words, here or on the server. */
     val exhausted: Boolean = false,
 )
 
-class FeedViewModel(private val progress: ProgressApi, private val catalog: CatalogApi) : ViewModel() {
+/** The feed reads words queued on the phone; the sync engine fetches more ahead of time. */
+@OptIn(ExperimentalCoroutinesApi::class)
+class FeedViewModel(
+    private val queue: FeedQueue,
+    private val progress: ProgressRepository,
+    private val words: WordCache,
+    private val catalog: CatalogApi,
+    private val sync: SyncEngine,
+) : ViewModel() {
 
     private val _state = MutableStateFlow(FeedState())
     val state = _state.asStateFlow()
 
-    private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 1)
-    val errors = _errors.asSharedFlow()
-
-    /** Words already reported as seen (or being reported), so each is sent once. */
-    private val reportedSeen = mutableSetOf<String>()
-
     init {
         load()
+        // Flags for the words on screen, live from the database
+        viewModelScope.launch {
+            _state.map { s -> s.cards.map { it.word.slug } }.distinctUntilChanged()
+                .flatMapLatest(progress::flagsFor)
+                .collect { flags -> _state.update { it.copy(flags = flags) } }
+        }
     }
 
     fun load() {
-        _state.value = FeedState(loading = true)
+        _state.update { FeedState(loading = true) }
         viewModelScope.launch {
-            try {
-                val wordOfTheDay = async { runCatching { catalog.wordOfTheDay().word }.getOrNull() }
-                val feed = progress.feed(PAGE_SIZE)
-                val cards = listOfNotNull(wordOfTheDay.await()?.let { FeedCard(it, isWordOfTheDay = true) }) +
-                    feed.filter { it.slug != wordOfTheDay.await()?.slug }.map { FeedCard(it) }
-                _state.value = FeedState(cards = cards, loading = false, exhausted = feed.isEmpty())
-            } catch (e: Exception) {
-                _state.value = FeedState(loading = false, error = e.userMessage)
+            var queued = queue.unseen()
+            if (queued.size < PRELOAD_DISTANCE) {
+                sync.syncNow()
+                queued = queue.unseen()
+            }
+            val wordOfTheDay = words.wordOfTheDay(catalog)
+            val cards = listOfNotNull(wordOfTheDay?.let { FeedCard(it, isWordOfTheDay = true) }) +
+                queued.filter { it.slug != wordOfTheDay?.slug }.map { FeedCard(it) }
+            _state.update {
+                FeedState(
+                    cards = cards,
+                    flags = it.flags,
+                    loading = false,
+                    offlineMessage = sync.status.value.error.takeIf { cards.isEmpty() },
+                    exhausted = queued.isEmpty(),
+                )
             }
         }
     }
 
-    fun loadMore() {
+    private fun loadMore() {
         val current = _state.value
         if (current.loading || current.loadingMore || current.exhausted) return
         _state.update { it.copy(loadingMore = true) }
         viewModelScope.launch {
-            try {
-                val have = _state.value.cards.map { it.word.slug }.toSet()
-                // Words shown but whose "seen" is still in flight can come back; drop them.
-                val more = progress.feed(PAGE_SIZE).filter { it.slug !in have }
-                _state.update { it.copy(cards = it.cards + more.map(::FeedCard), loadingMore = false, exhausted = more.isEmpty()) }
-            } catch (e: Exception) {
-                _state.update { it.copy(loadingMore = false) }
-                _errors.tryEmit(e.userMessage)
+            val have = _state.value.cards.map { it.word.slug }.toSet()
+            var more = queue.unseen().filter { it.slug !in have }
+            if (more.size < PRELOAD_DISTANCE) {
+                sync.syncNow()
+                more = queue.unseen().filter { it.slug !in have }
             }
+            _state.update { it.copy(cards = it.cards + more.map(::FeedCard), loadingMore = false, exhausted = more.isEmpty()) }
         }
     }
 
-    /** The feed only skips words once they're marked seen, so report each word when it's shown. */
+    /** The feed only skips words once they're marked seen, so mark each word when it's shown. */
     fun onShown(index: Int) {
         if (index >= _state.value.cards.size - PRELOAD_DISTANCE) loadMore()
         val word = _state.value.cards.getOrNull(index)?.word ?: return
-        if (!reportedSeen.add(word.slug)) return
-        viewModelScope.launch {
-            try {
-                val mine = progress.update(word.slug, WordStatePatch(seen = true))
-                // Keep flags the user may have toggled meanwhile
-                _state.update { it.copy(flags = it.flags + (word.slug to (it.flags[word.slug] ?: mine.flags).copy(seen = true))) }
-            } catch (_: Exception) {
-                reportedSeen.remove(word.slug) // try again next time it's shown
-            }
-        }
+        if (_state.value.flags[word.slug]?.seen == true) return
+        viewModelScope.launch { progress.update(word.slug, WordStatePatch(seen = true)) }
     }
 
     fun update(slug: String, patch: WordStatePatch) {
-        val before = _state.value.flags[slug] ?: WordFlags()
-        setFlags(slug, patch.applyTo(before))
-        viewModelScope.launch {
-            try {
-                setFlags(slug, progress.update(slug, patch).flags)
-            } catch (e: Exception) {
-                setFlags(slug, before)
-                _errors.tryEmit(e.userMessage)
-            }
-        }
+        viewModelScope.launch { progress.update(slug, patch) }
     }
 
-    private fun setFlags(slug: String, flags: WordFlags) = _state.update { it.copy(flags = it.flags + (slug to flags)) }
-
     private companion object {
-        const val PAGE_SIZE = 10
         const val PRELOAD_DISTANCE = 3
     }
 }
 
 @Composable
-fun FeedScreen(viewModel: FeedViewModel, snackbar: SnackbarHostState, onOpenWord: (String) -> Unit) {
+fun FeedScreen(viewModel: FeedViewModel, onOpenWord: (String) -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    LaunchedEffect(viewModel) { viewModel.errors.collect { snackbar.showSnackbar(it) } }
 
     when {
         state.loading -> LoadingBox()
-        state.error != null -> MessageBox(state.error!!, actionLabel = "Try again", onAction = viewModel::load)
+        state.offlineMessage != null -> MessageBox(
+            "${state.offlineMessage}\n\nNew words are downloaded ahead of time once you're online.",
+            actionLabel = "Try again",
+            onAction = viewModel::load,
+        )
         state.cards.isEmpty() -> MessageBox(
             "No new words match your settings. Widen your level range or categories in Settings.",
             actionLabel = "Refresh",
@@ -226,7 +224,7 @@ private fun FeedPage(
 private fun EndPage(state: FeedState, onRefresh: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         if (state.exhausted) {
-            MessageBox("That's all the new words for your settings.", actionLabel = "Refresh", onAction = onRefresh)
+            MessageBox("No more new words for now. More are downloaded when you're online.", actionLabel = "Refresh", onAction = onRefresh)
         } else {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator()

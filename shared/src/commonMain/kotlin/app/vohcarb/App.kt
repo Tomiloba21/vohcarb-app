@@ -24,6 +24,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -93,6 +95,8 @@ private fun MainScreens(container: AppContainer) {
     val destination = entry?.destination
     val currentTab = tabs.firstOrNull { tab -> destination?.hierarchy?.any { it.hasRoute(tab.route::class) } == true }
     val openWord: (String) -> Unit = { nav.navigate(WordRoute(it)) }
+    // Catch up with the server whenever the app comes to the front (also right after sign-in)
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { container.sync.requestSync() }
 
     Scaffold(
         topBar = {
@@ -111,24 +115,26 @@ private fun MainScreens(container: AppContainer) {
         // Screens with their own top bar must not add the status bar inset a second time
         NavHost(nav, startDestination = TodayRoute, modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
             composable<TodayRoute> {
-                FeedScreen(viewModel { FeedViewModel(container.progress, container.catalog) }, snackbar, openWord)
+                FeedScreen(viewModel { FeedViewModel(container.feed, container.progress, container.words, container.catalog, container.sync) }, openWord)
             }
             composable<SavedRoute> {
                 SavedScreen(viewModel { SavedViewModel(container.progress) }, openWord)
             }
             composable<PracticeRoute> {
-                PracticeScreen(viewModel { PracticeViewModel(container.practice) })
+                PracticeScreen(viewModel { PracticeViewModel(container.practice, container.sync) })
             }
             composable<SettingsRoute> {
                 SettingsScreen(
-                    viewModel { SettingsViewModel(container.user, container.catalog, container.sessions) },
+                    viewModel {
+                        SettingsViewModel(container.user, container.catalog, container.sessions, container.sync, container.feed, container.progress)
+                    },
                     snackbar,
                     onOpenCredits = { nav.navigate(CreditsRoute) },
                 )
             }
             composable<WordRoute> { backStackEntry ->
                 val slug = backStackEntry.toRoute<WordRoute>().slug
-                WordScreen(viewModel { WordViewModel(slug, container.catalog, container.progress) }, onBack = nav::popBackStack)
+                WordScreen(viewModel { WordViewModel(slug, container.words, container.catalog, container.progress) }, onBack = nav::popBackStack)
             }
             composable<SearchRoute> {
                 SearchScreen(viewModel { SearchViewModel(container.catalog) }, onBack = nav::popBackStack, onOpenWord = openWord)

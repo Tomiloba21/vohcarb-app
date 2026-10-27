@@ -1,8 +1,6 @@
 package app.vohcarb.progress
 
-import app.vohcarb.catalog.PageResponse
 import app.vohcarb.catalog.WordDetailDto
-import app.vohcarb.catalog.WordSummaryDto
 import app.vohcarb.core.api.ApiClient
 import kotlinx.serialization.Serializable
 
@@ -14,8 +12,7 @@ data class WordFlags(
     val known: Boolean = false,
 )
 
-/** Online update of some flags; null fields are left out of the JSON and keep their value. */
-@Serializable
+/** A change to some flags; null fields keep their value. */
 data class WordStatePatch(
     val seen: Boolean? = null,
     val liked: Boolean? = null,
@@ -30,28 +27,51 @@ data class WordStatePatch(
     )
 }
 
+enum class WordList(val label: String) { SAVED("Saved"), LIKED("Liked"), KNOWN("Known"), SEEN("History") }
+
+// Offline sync (POST /api/v1/me/sync), mirroring the backend's ProgressDtos.
+
+/** A word's full flags as this phone last set them. */
 @Serializable
-data class MyWordDto(
-    val word: WordSummaryDto,
+data class SyncChange(
+    val word: String,
     val seen: Boolean,
     val liked: Boolean,
     val saved: Boolean,
     val known: Boolean,
-    val changedAt: String? = null,
-) {
-    val flags get() = WordFlags(seen, liked, saved, known)
-}
+    val changedAt: String,
+)
 
-enum class WordList(val label: String) { SAVED("Saved"), LIKED("Liked"), KNOWN("Known"), SEEN("History") }
+@Serializable
+data class SyncRequest(val sinceRevision: Long, val changes: List<SyncChange>)
+
+@Serializable
+data class SyncedWordDto(
+    val word: String,
+    val seen: Boolean,
+    val liked: Boolean,
+    val saved: Boolean,
+    val known: Boolean,
+    val changedAt: String,
+    val revision: Long,
+)
+
+@Serializable
+data class SyncResponse(
+    val revision: Long,
+    val hasMore: Boolean,
+    val changes: List<SyncedWordDto> = emptyList(),
+    val unknownWords: List<String> = emptyList(),
+)
 
 class ProgressApi(private val api: ApiClient) {
-    /** Random unseen words matching the user's preferences; the server defaults [size] to their words per day. */
-    suspend fun feed(size: Int? = null): List<WordDetailDto> = api.get("/api/v1/me/feed", "size" to size)
+    /** Random unseen words matching the user's preferences. */
+    suspend fun feed(size: Int): List<WordDetailDto> = api.get("/api/v1/me/feed", "size" to size)
 
-    suspend fun list(list: WordList, page: Int = 0, size: Int = 30): PageResponse<MyWordDto> =
-        api.get("/api/v1/me/words", "list" to list.name.lowercase(), "page" to page, "size" to size)
+    /** Pushes local changes (at most 500) and pulls everything changed after [SyncRequest.sinceRevision]. */
+    suspend fun sync(request: SyncRequest): SyncResponse = api.post("/api/v1/me/sync", request)
 
-    suspend fun state(slug: String): MyWordDto = api.get("/api/v1/me/words/$slug")
-
-    suspend fun update(slug: String, patch: WordStatePatch): MyWordDto = api.patch("/api/v1/me/words/$slug", patch)
+    companion object {
+        const val MAX_SYNC_CHANGES = 500
+    }
 }

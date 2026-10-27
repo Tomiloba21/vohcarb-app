@@ -30,18 +30,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.vohcarb.catalog.WordSummaryDto
 import app.vohcarb.catalog.levelName
-import app.vohcarb.core.api.userMessage
 import app.vohcarb.core.ui.LoadingBox
 import app.vohcarb.core.ui.MessageBox
-import app.vohcarb.progress.ProgressApi
+import app.vohcarb.progress.ProgressRepository
 import app.vohcarb.progress.WordList
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.stateIn
 
-/** A list of words that loads page by page. */
+/** A list of words that loads page by page from the server (search). */
 data class WordPages(
     val words: List<WordSummaryDto> = emptyList(),
     val nextPage: Int = 0,
@@ -50,73 +49,46 @@ data class WordPages(
     val error: String? = null,
 )
 
-data class SavedState(val list: WordList = WordList.SAVED, val pages: WordPages = WordPages())
+/** The user's lists, read from the phone; the sync engine keeps them current. */
+@OptIn(ExperimentalCoroutinesApi::class)
+class SavedViewModel(private val progress: ProgressRepository) : ViewModel() {
 
-class SavedViewModel(private val progress: ProgressApi) : ViewModel() {
+    val selected = MutableStateFlow(WordList.SAVED)
 
-    private val _state = MutableStateFlow(SavedState())
-    val state = _state.asStateFlow()
-    private var job: Job? = null
-
-    fun select(list: WordList) {
-        if (list == _state.value.list) return
-        _state.value = SavedState(list)
-        refresh()
-    }
-
-    /** Reloads from the first page, e.g. when coming back after saving words elsewhere. */
-    fun refresh() {
-        job?.cancel()
-        _state.update { it.copy(pages = WordPages()) }
-        loadMore()
-    }
-
-    fun loadMore() {
-        val (list, pages) = _state.value
-        if (pages.loading || pages.endReached) return
-        _state.update { it.copy(pages = pages.copy(loading = true, error = null)) }
-        job = viewModelScope.launch {
-            try {
-                val page = progress.list(list, pages.nextPage)
-                _state.update {
-                    it.copy(pages = it.pages.copy(
-                        words = it.pages.words + page.items.map { mine -> mine.word },
-                        nextPage = page.page + 1,
-                        endReached = page.isLast,
-                        loading = false,
-                    ))
-                }
-            } catch (e: Exception) {
-                _state.update { it.copy(pages = it.pages.copy(loading = false, error = e.userMessage)) }
-            }
-        }
-    }
+    /** null while loading */
+    val words = selected.flatMapLatest(progress::list)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 }
 
 @Composable
 fun SavedScreen(viewModel: SavedViewModel, onOpenWord: (String) -> Unit) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
-    // Every time the screen is shown, so words saved elsewhere appear
-    LaunchedEffect(viewModel) { viewModel.refresh() }
+    val selected by viewModel.selected.collectAsStateWithLifecycle()
+    val words by viewModel.words.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize()) {
-        PrimaryScrollableTabRow(selectedTabIndex = state.list.ordinal, edgePadding = 16.dp) {
+        PrimaryScrollableTabRow(selectedTabIndex = selected.ordinal, edgePadding = 16.dp) {
             WordList.entries.forEach { list ->
-                Tab(selected = list == state.list, onClick = { viewModel.select(list) }, text = { Text(list.label) })
+                Tab(selected = list == selected, onClick = { viewModel.selected.value = list }, text = { Text(list.label) })
             }
         }
-        WordPagesList(
-            pages = state.pages,
-            emptyMessage = when (state.list) {
-                WordList.SAVED -> "Words you save show up here, and become flashcards in Practice."
-                WordList.LIKED -> "Words you like show up here."
-                WordList.KNOWN -> "Words you mark as known show up here. They won't appear in your feed again."
-                WordList.SEEN -> "Words you've seen in your feed show up here."
-            },
-            onLoadMore = viewModel::loadMore,
-            onRetry = viewModel::refresh,
-            onOpenWord = onOpenWord,
-        )
+        val list = words
+        when {
+            list == null -> LoadingBox()
+            list.isEmpty() -> MessageBox(
+                when (selected) {
+                    WordList.SAVED -> "Words you save show up here, and become flashcards in Practice."
+                    WordList.LIKED -> "Words you like show up here."
+                    WordList.KNOWN -> "Words you mark as known show up here. They won't appear in your feed again."
+                    WordList.SEEN -> "Words you've seen in your feed show up here."
+                },
+            )
+            else -> LazyColumn(Modifier.fillMaxSize()) {
+                items(list, key = { it.slug }) { word ->
+                    WordRow(word, onClick = { onOpenWord(word.slug) })
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                }
+            }
+        }
     }
 }
 

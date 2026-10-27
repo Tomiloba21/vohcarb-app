@@ -1,0 +1,238 @@
+-- The phone's copy of the user's data, so the app works offline and syncs later.
+-- Times are epoch milliseconds. Booleans are 0/1. Plain SQLite 3.18 (Android 8): no UPSERT.
+
+-- Words the app knows. `detail` is the full WordDetailDto as JSON; null when only the summary is known.
+CREATE TABLE word (
+    slug TEXT NOT NULL PRIMARY KEY,
+    lemma TEXT NOT NULL,
+    difficulty INTEGER,
+    short_definition TEXT,
+    parts_of_speech TEXT NOT NULL,
+    detail TEXT
+);
+
+-- The user's flags on a word. `dirty` = changed on this phone and not yet accepted by the server.
+CREATE TABLE user_word (
+    slug TEXT NOT NULL PRIMARY KEY,
+    seen INTEGER NOT NULL,
+    liked INTEGER NOT NULL,
+    saved INTEGER NOT NULL,
+    known INTEGER NOT NULL,
+    changed_at INTEGER NOT NULL,
+    dirty INTEGER NOT NULL
+);
+
+CREATE INDEX user_word_changed ON user_word(changed_at);
+
+-- New words fetched from /me/feed ahead of time, shown in order. Removed once seen.
+CREATE TABLE feed_item (
+    slug TEXT NOT NULL PRIMARY KEY,
+    position INTEGER NOT NULL
+);
+
+-- Spaced-repetition cards, as the server last sent them or as graded here since.
+CREATE TABLE card (
+    slug TEXT NOT NULL PRIMARY KEY,
+    repetitions INTEGER NOT NULL,
+    ease_factor REAL NOT NULL,
+    interval_days INTEGER NOT NULL,
+    lapses INTEGER NOT NULL,
+    due_at INTEGER NOT NULL,
+    last_reviewed_at INTEGER NOT NULL
+);
+
+-- Saved words the server has a card for that isn't due yet. The server only sends due cards, so we don't know
+-- these cards' state; they're left out of offline sessions until the server says they're due.
+CREATE TABLE card_elsewhere (
+    slug TEXT NOT NULL PRIMARY KEY
+);
+
+-- The quiz question the server made for a word (QuizQuestion as JSON), so practice works offline.
+CREATE TABLE question (
+    slug TEXT NOT NULL PRIMARY KEY,
+    json TEXT NOT NULL
+);
+
+-- Answers given here and not yet uploaded. Re-sending one is harmless.
+CREATE TABLE pending_review (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    slug TEXT NOT NULL,
+    grade TEXT NOT NULL,
+    reviewed_at INTEGER NOT NULL
+);
+
+-- Small values: sync revision, last sync time, cached stats and word of the day.
+CREATE TABLE meta (
+    key TEXT NOT NULL PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- word
+
+insertWordIfMissing:
+INSERT OR IGNORE INTO word(slug, lemma, difficulty, short_definition, parts_of_speech, detail)
+VALUES (?, ?, ?, ?, ?, ?);
+
+updateWordSummary:
+UPDATE word SET lemma = ?, difficulty = ?, short_definition = ?, parts_of_speech = ? WHERE slug = ?;
+
+updateWordDetail:
+UPDATE word SET detail = ? WHERE slug = ?;
+
+wordDetail:
+SELECT detail FROM word WHERE slug = ?;
+
+-- Words the user has flags on but no full details for, saved ones first. Their details are fetched while syncing.
+wordsMissingDetail:
+SELECT uw.slug FROM user_word uw LEFT JOIN word w ON w.slug = uw.slug
+WHERE w.slug IS NULL OR (w.detail IS NULL AND (uw.saved = 1 OR uw.liked = 1))
+ORDER BY uw.saved DESC, uw.changed_at DESC
+LIMIT ?;
+
+-- user_word
+
+flags:
+SELECT * FROM user_word WHERE slug = ?;
+
+flagsIn:
+SELECT * FROM user_word WHERE slug IN ?;
+
+setFlags:
+INSERT OR REPLACE INTO user_word(slug, seen, liked, saved, known, changed_at, dirty)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+dirtyFlags:
+SELECT * FROM user_word WHERE dirty = 1 ORDER BY changed_at LIMIT ?;
+
+-- Only if it hasn't changed again since it was sent.
+markClean:
+UPDATE user_word SET dirty = 0 WHERE slug = ? AND changed_at = ?;
+
+deleteFlags:
+DELETE FROM user_word WHERE slug = ?;
+
+countDirty:
+SELECT COUNT(*) FROM user_word WHERE dirty = 1;
+
+-- Lists, most recent first. Words without a cached summary come back with a null lemma.
+listSaved:
+SELECT uw.slug, w.lemma, w.difficulty, w.short_definition, w.parts_of_speech
+FROM user_word uw LEFT JOIN word w ON w.slug = uw.slug WHERE uw.saved = 1 ORDER BY uw.changed_at DESC;
+
+listLiked:
+SELECT uw.slug, w.lemma, w.difficulty, w.short_definition, w.parts_of_speech
+FROM user_word uw LEFT JOIN word w ON w.slug = uw.slug WHERE uw.liked = 1 ORDER BY uw.changed_at DESC;
+
+listKnown:
+SELECT uw.slug, w.lemma, w.difficulty, w.short_definition, w.parts_of_speech
+FROM user_word uw LEFT JOIN word w ON w.slug = uw.slug WHERE uw.known = 1 ORDER BY uw.changed_at DESC;
+
+listSeen:
+SELECT uw.slug, w.lemma, w.difficulty, w.short_definition, w.parts_of_speech
+FROM user_word uw LEFT JOIN word w ON w.slug = uw.slug WHERE uw.seen = 1 ORDER BY uw.changed_at DESC;
+
+-- feed
+
+-- Queued words not seen yet (seen on another device counts), with their details.
+unseenFeed:
+SELECT f.slug, w.detail FROM feed_item f JOIN word w ON w.slug = f.slug
+LEFT JOIN user_word uw ON uw.slug = f.slug
+WHERE w.detail IS NOT NULL AND (uw.slug IS NULL OR (uw.seen = 0 AND uw.known = 0))
+ORDER BY f.position;
+
+addFeedItem:
+INSERT OR IGNORE INTO feed_item(slug, position) VALUES (?, (SELECT COALESCE(MAX(position), 0) + 1 FROM feed_item));
+
+-- After the user changes their preferences: queued words may no longer match.
+clearFeed:
+DELETE FROM feed_item;
+
+removeSeenFeedItems:
+DELETE FROM feed_item WHERE slug IN (SELECT slug FROM user_word WHERE seen = 1 OR known = 1);
+
+-- cards and practice
+
+setCard:
+INSERT OR REPLACE INTO card(slug, repetitions, ease_factor, interval_days, lapses, due_at, last_reviewed_at)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+card:
+SELECT * FROM card WHERE slug = ?;
+
+-- The deck is saved words that aren't marked known (same as the server).
+dueSlugs:
+SELECT c.slug FROM card c JOIN user_word uw ON uw.slug = c.slug
+WHERE uw.saved = 1 AND uw.known = 0 AND c.due_at <= ?
+ORDER BY c.due_at
+LIMIT ?;
+
+newSlugs:
+SELECT uw.slug FROM user_word uw
+WHERE uw.saved = 1 AND uw.known = 0
+  AND uw.slug NOT IN (SELECT slug FROM card) AND uw.slug NOT IN (SELECT slug FROM card_elsewhere)
+ORDER BY uw.changed_at DESC
+LIMIT ?;
+
+deckCounts:
+SELECT
+  (SELECT COUNT(*) FROM card c JOIN user_word uw ON uw.slug = c.slug WHERE uw.saved = 1 AND uw.known = 0 AND c.due_at <= :now) AS due,
+  (SELECT COUNT(*) FROM user_word uw WHERE uw.saved = 1 AND uw.known = 0
+     AND uw.slug NOT IN (SELECT slug FROM card) AND uw.slug NOT IN (SELECT slug FROM card_elsewhere)) AS fresh,
+  (SELECT COUNT(*) FROM card) + (SELECT COUNT(*) FROM card_elsewhere) AS total;
+
+clearCardElsewhere:
+DELETE FROM card_elsewhere;
+
+-- After a complete session fetch: saved words the server didn't list and we have no card for.
+markCardsElsewhere:
+INSERT OR IGNORE INTO card_elsewhere(slug)
+SELECT uw.slug FROM user_word uw
+WHERE uw.saved = 1 AND uw.known = 0 AND uw.slug NOT IN ? AND uw.slug NOT IN (SELECT slug FROM card);
+
+removeCardElsewhere:
+DELETE FROM card_elsewhere WHERE slug = ?;
+
+setQuestion:
+INSERT OR REPLACE INTO question(slug, json) VALUES (?, ?);
+
+question:
+SELECT json FROM question WHERE slug = ?;
+
+addPendingReview:
+INSERT INTO pending_review(slug, grade, reviewed_at) VALUES (?, ?, ?);
+
+pendingReviews:
+SELECT * FROM pending_review ORDER BY id LIMIT ?;
+
+deletePendingReviewsUpTo:
+DELETE FROM pending_review WHERE id <= ?;
+
+countPendingReviews:
+SELECT COUNT(*) FROM pending_review;
+
+countPendingReviewsFor:
+SELECT COUNT(*) FROM pending_review WHERE slug = ?;
+
+countPendingReviewsSince:
+SELECT COUNT(*) FROM pending_review WHERE reviewed_at >= ?;
+
+-- meta
+
+meta:
+SELECT value FROM meta WHERE key = ?;
+
+setMeta:
+INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?);
+
+-- Sign-out: forget everything about this user.
+
+clearAll {
+    DELETE FROM word;
+    DELETE FROM user_word;
+    DELETE FROM feed_item;
+    DELETE FROM card;
+    DELETE FROM card_elsewhere;
+    DELETE FROM question;
+    DELETE FROM pending_review;
+    DELETE FROM meta;
+}

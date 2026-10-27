@@ -18,6 +18,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RangeSlider
@@ -47,12 +48,19 @@ import app.vohcarb.core.deviceTimeZone
 import app.vohcarb.core.session.Session
 import app.vohcarb.core.session.SessionStore
 import app.vohcarb.core.ui.Load
-import app.vohcarb.core.ui.LoadContent
+import app.vohcarb.core.MINUTE_MILLIS
+import app.vohcarb.core.nowMillis
+import app.vohcarb.feed.FeedQueue
+import app.vohcarb.progress.ProgressRepository
+import app.vohcarb.sync.SyncEngine
+import app.vohcarb.sync.SyncStatus
 import app.vohcarb.user.PreferencesDto
 import app.vohcarb.user.UserApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -72,7 +80,13 @@ class SettingsViewModel(
     private val user: UserApi,
     private val catalog: CatalogApi,
     private val sessions: SessionStore,
+    private val sync: SyncEngine,
+    private val feed: FeedQueue,
+    progress: ProgressRepository,
 ) : ViewModel() {
+
+    val syncStatus = sync.status
+    val pending = sync.pendingCount(progress).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
     private val _state = MutableStateFlow<Load<SettingsData>>(Load.Loading)
     val state = _state.asStateFlow()
@@ -110,6 +124,9 @@ class SettingsViewModel(
                 val saved = user.updatePreferences(data.draft.copy(timezone = deviceTimeZone()))
                 updateData { it.copy(saved = saved, draft = saved, saving = false) }
                 _messages.tryEmit("Saved")
+                // Words queued for the feed were picked with the old settings
+                feed.clear()
+                sync.requestSync()
             } catch (e: Exception) {
                 updateData { it.copy(saving = false) }
                 _messages.tryEmit(e.userMessage)
@@ -118,6 +135,10 @@ class SettingsViewModel(
     }
 
     fun signOut() = sessions.signOut()
+
+    fun syncNow() {
+        viewModelScope.launch { sync.syncNow() }
+    }
 
     private fun updateData(change: (SettingsData) -> SettingsData) = _state.update {
         if (it is Load.Ready) Load.Ready(change(it.value)) else it
@@ -128,24 +149,66 @@ class SettingsViewModel(
 fun SettingsScreen(viewModel: SettingsViewModel, snackbar: SnackbarHostState, onOpenCredits: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
+    val syncStatus by viewModel.syncStatus.collectAsStateWithLifecycle()
+    val pending by viewModel.pending.collectAsStateWithLifecycle()
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
 
-    LoadContent(state, onRetry = viewModel::load) { data ->
-        Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("Settings", style = MaterialTheme.typography.displaySmall, modifier = Modifier.padding(horizontal = 24.dp))
-            Preferences(data, viewModel)
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            Account(session, viewModel.serverUrl, onSignOut = viewModel::signOut)
-            ListItem(
-                headlineContent = { Text("Credits and licences") },
-                supportingContent = { Text("Open English WordNet, FrequencyWords") },
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Settings", style = MaterialTheme.typography.displaySmall, modifier = Modifier.padding(horizontal = 24.dp))
+        // Preferences live on the server, so they need a connection; everything else works offline.
+        when (val s = state) {
+            Load.Loading -> LinearProgressIndicator(Modifier.fillMaxWidth().padding(24.dp))
+            is Load.Failed -> ListItem(
+                headlineContent = { Text("Couldn't load your preferences") },
+                supportingContent = { Text(s.message) },
+                trailingContent = { TextButton(onClick = viewModel::load) { Text("Retry") } },
                 modifier = Modifier.padding(horizontal = 8.dp),
-                trailingContent = { TextButton(onClick = onOpenCredits) { Text("View") } },
             )
+            is Load.Ready -> Preferences(s.value, viewModel)
         }
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        Sync(syncStatus, pending, onSyncNow = viewModel::syncNow)
+        Account(session, viewModel.serverUrl, onSignOut = viewModel::signOut)
+        ListItem(
+            headlineContent = { Text("Credits and licences") },
+            supportingContent = { Text("Open English WordNet, FrequencyWords") },
+            modifier = Modifier.padding(horizontal = 8.dp),
+            trailingContent = { TextButton(onClick = onOpenCredits) { Text("View") } },
+        )
+    }
+}
+
+@Composable
+private fun Sync(status: SyncStatus, pending: Long, onSyncNow: () -> Unit) {
+    val headline = when {
+        status.running -> "Syncing…"
+        status.error != null -> "Couldn't sync"
+        status.lastSyncedAt != null -> "Synced ${timeAgo(status.lastSyncedAt)}"
+        else -> "Not synced yet"
+    }
+    val details = listOfNotNull(
+        status.error.takeIf { !status.running },
+        if (pending > 0) "$pending change${if (pending > 1L) "s" else ""} waiting to be sent" else "Everything is on the server",
+    ).joinToString("\n")
+    ListItem(
+        overlineContent = { Text("Sync") },
+        headlineContent = { Text(headline) },
+        supportingContent = { Text(details) },
+        trailingContent = { TextButton(onClick = onSyncNow, enabled = !status.running) { Text("Sync now") } },
+        modifier = Modifier.padding(horizontal = 8.dp),
+    )
+}
+
+private fun timeAgo(millis: Long): String {
+    val minutes = (nowMillis() - millis) / MINUTE_MILLIS
+    return when {
+        minutes < 1 -> "just now"
+        minutes < 60 -> "$minutes min ago"
+        minutes < 24 * 60 -> "${minutes / 60} h ago"
+        else -> "${minutes / (24 * 60)} days ago"
     }
 }
 

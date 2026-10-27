@@ -42,34 +42,55 @@ Code in `shared/src/commonMain/kotlin/app/vohcarb/` is organised **by feature**,
 |---|---|
 | `core/api` | `ApiClient` (Ktor): server address, bearer token, problem-details errors, sign-out on 401 |
 | `core/session` | `SessionStore`: token and server address, kept in `Settings` (SharedPreferences on Android) |
+| `sync` | `SyncEngine`: exchanges the phone's data with the server (below) |
 | `core/ui` | Theme (paper-and-ink colours, serif type) and shared components |
 | `auth` | Dev sign-in |
-| `catalog` | Word DTOs and catalog API (words, search, categories, word of the day) |
-| `feed` | **Today**: one word per screen, swipe up for the next; words are marked seen as they're shown |
+| `catalog` | Word DTOs, catalog API, and `WordCache` (words stored on the phone) |
+| `feed` | **Today**: one word per screen, swipe up for the next, from `FeedQueue` (words downloaded ahead) |
 | `word` | The full word screen and the views shared with the feed |
-| `progress` | Saved / liked / known / seen flags |
+| `progress` | Saved / liked / known / seen flags: `ProgressRepository` on the phone, sync DTOs |
 | `saved` | **Words**: your saved, liked, known and seen lists |
 | `search` | Prefix search over the catalog |
-| `practice` | **Practice**: spaced-repetition quiz; answers are uploaded with the time they happened |
+| `practice` | **Practice**: spaced-repetition quiz run on the phone (`PracticeRepository`, `srs/Scheduler.kt`) |
 | `settings` | **Settings**: level range, words per day, topics, reminder times; account; credits |
 | `user` | `/me` and preferences API |
 
 `AppContainer` wires everything together (no DI framework); each screen gets a `ViewModel` from it.
+The local database schema is in `shared/src/commonMain/sqldelight/app/vohcarb/db/Vohcarb.sq` (SQLDelight).
+
+## Offline first
+
+Screens read and write the phone's database (SQLDelight); `SyncEngine` keeps it in step with the server.
+
+- **Flags** (seen, liked, saved, known) are written locally and marked *dirty*. A sync sends them to
+  `POST /me/sync` with the last `revision`, and applies what other devices changed. The server keeps the
+  later change; a word edited again while a sync is in flight stays dirty and goes next time.
+- **Practice** builds sessions from the local deck (saved and not known, like the server), grades with a
+  copy of the backend's `Scheduler.kt` (keep the two identical), and queues answers with their time. After
+  upload, the server's card replaces the local one. The server only sends *due* cards, so after a complete
+  session fetch, saved words it didn't list are marked as "card elsewhere" rather than treated as new.
+- **Feed**: about 30 new words and their details are downloaded ahead; quiz questions are cached per word.
+- **When it syncs**: in full on app start/resume, when the network comes back, and from Settings → Sync now;
+  just the changes a few seconds after you save, like, practise or swipe.
+- Signing out deletes the user's data from the phone.
 
 ## Status
 
 | Phase | What |
 |---|---|
 | 1 | Project setup, dev sign-in, feed, word screen, saved lists, search, practice (online), settings, credits |
+| 2 | Offline first: SQLDelight database, sync engine, offline feed and practice, sync status in Settings |
 
 Next, roughly in order:
 
-1. **Offline first**: a local database (SQLDelight or Room KMP) for words and flags, synced with
-   `POST /api/v1/me/sync`; practice offline with a copy of the backend's `Scheduler.kt`.
-2. **Groups**: create/join with invite codes, shared word lists, group word of the day, leaderboard.
-3. **Home-screen widget** (Jetpack Glance) with the word of the day.
-4. **Push reminders** (FCM) once the Firebase project exists, and **Google Sign-In**.
-5. Themes and polish; iOS on a Mac.
+1. **Groups**: create/join with invite codes, shared word lists, group word of the day, leaderboard.
+2. **Home-screen widget** (Jetpack Glance) with the word of the day.
+3. **Push reminders** (FCM) once the Firebase project exists, and **Google Sign-In**. Background sync
+   (WorkManager) fits here too; today the app syncs while it's open.
+4. Themes and polish; iOS on a Mac.
+
+Known limits: user preferences still need a connection; the History list shows words whose details
+haven't been fetched yet by their slug.
 
 ## Credits
 

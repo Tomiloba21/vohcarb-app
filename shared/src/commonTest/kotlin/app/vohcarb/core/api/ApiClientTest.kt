@@ -3,7 +3,7 @@ package app.vohcarb.core.api
 import app.vohcarb.core.session.Session
 import app.vohcarb.core.session.SessionStore
 import app.vohcarb.progress.ProgressApi
-import app.vohcarb.progress.WordStatePatch
+import app.vohcarb.progress.SyncRequest
 import com.russhwolf.settings.MapSettings
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -40,19 +40,17 @@ class ApiClientTest {
         respond(body, status, headersOf(HttpHeaders.ContentType, "application/json"))
 
     @Test
-    fun sendsTheTokenAndOnlyTheFlagsThatChange() = runTest {
+    fun sendsTheTokenAndAJsonBody() = runTest {
         sessions.signIn(Session("abc", 1, "Ada", null))
-        val api = ProgressApi(client {
-            json("""{"word":{"slug":"ephemeral","lemma":"ephemeral"},"seen":false,"liked":false,"saved":true,"known":false}""")
-        })
+        val api = ProgressApi(client { json("""{"revision":5,"hasMore":false,"changes":[]}""") })
 
-        val result = api.update("ephemeral", WordStatePatch(saved = true))
+        val result = api.sync(SyncRequest(sinceRevision = 5, changes = emptyList()))
 
         val request = requests.single()
-        assertEquals("http://server/api/v1/me/words/ephemeral", request.url.toString())
+        assertEquals("http://server/api/v1/me/sync", request.url.toString())
         assertEquals("Bearer abc", request.headers[HttpHeaders.Authorization])
-        assertEquals("""{"saved":true}""", request.body.toByteArray().decodeToString())
-        assertEquals(true, result.saved)
+        assertEquals("""{"sinceRevision":5,"changes":[]}""", request.body.toByteArray().decodeToString())
+        assertEquals(5, result.revision)
     }
 
     @Test

@@ -2,9 +2,8 @@ package app.vohcarb.practice
 
 import app.vohcarb.catalog.WordDetailDto
 import app.vohcarb.core.api.ApiClient
+import app.vohcarb.practice.srs.Grade
 import kotlinx.serialization.Serializable
-
-enum class Grade { AGAIN, HARD, GOOD, EASY }
 
 enum class QuestionType {
     /** prompt is the word; options are definitions. */
@@ -64,6 +63,7 @@ data class PracticeStats(
 )
 
 class PracticeApi(private val api: ApiClient) {
+    /** Due reviews first, then new words; at most 50. */
     suspend fun session(size: Int = 10): PracticeSession = api.get("/api/v1/me/practice/session", "size" to size)
 
     /** Re-sending the same answer is harmless, so failed uploads can simply be retried. */

@@ -30,21 +30,19 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import app.vohcarb.core.api.userMessage
 import app.vohcarb.core.ui.DefinitionStyle
 import app.vohcarb.core.ui.Load
 import app.vohcarb.core.ui.LoadContent
 import app.vohcarb.core.ui.LoadingBox
 import app.vohcarb.core.ui.MessageBox
+import app.vohcarb.practice.srs.Grade
+import app.vohcarb.sync.SyncEngine
 import app.vohcarb.word.Senses
 import app.vohcarb.word.WordHeader
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlin.time.Clock
 
 data class Round(
     val items: List<PracticeItem>,
@@ -60,43 +58,40 @@ data class Round(
 }
 
 sealed interface PracticeState {
-    data class Home(val stats: Load<PracticeStats>) : PracticeState
+    data class Home(val stats: Load<LocalStats>) : PracticeState
     data object Starting : PracticeState
     data class Playing(val round: Round) : PracticeState
-    data class Done(val reviewed: Int, val correct: Int, val unsent: Int) : PracticeState
+    data class Done(val reviewed: Int, val correct: Int) : PracticeState
 }
 
-class PracticeViewModel(private val practice: PracticeApi) : ViewModel() {
+/**
+ * Practice runs on the phone: sessions come from the local deck, answers are graded and scheduled here
+ * and uploaded by the sync engine.
+ */
+class PracticeViewModel(private val practice: PracticeRepository, private val sync: SyncEngine) : ViewModel() {
 
     private val _state = MutableStateFlow<PracticeState>(PracticeState.Home(Load.Loading))
     val state = _state.asStateFlow()
 
-    /** Answers not yet accepted by the server. Re-sending is harmless, so they're simply sent again. */
-    private val pending = mutableListOf<ReviewInput>()
-    private val uploadLock = Mutex()
-
     fun loadStats() {
-        _state.value = PracticeState.Home(Load.Loading)
+        if (_state.value !is PracticeState.Home) _state.value = PracticeState.Home(Load.Loading)
         viewModelScope.launch {
-            upload()
-            val stats = try {
-                Load.Ready(practice.stats())
-            } catch (e: Exception) {
-                Load.Failed(e.userMessage)
-            }
-            if (_state.value is PracticeState.Home) _state.value = PracticeState.Home(stats)
+            showStats()
+            // Then catch up with the server (new cards, other devices) and show the fresh numbers
+            if (sync.syncNow()) showStats()
         }
+    }
+
+    private suspend fun showStats() {
+        val stats = practice.stats()
+        _state.update { if (it is PracticeState.Home) PracticeState.Home(Load.Ready(stats)) else it }
     }
 
     fun start() {
         _state.value = PracticeState.Starting
         viewModelScope.launch {
-            _state.value = try {
-                val session = practice.session(SESSION_SIZE)
-                if (session.items.isEmpty()) PracticeState.Home(Load.Ready(practice.stats())) else PracticeState.Playing(Round(session.items))
-            } catch (e: Exception) {
-                PracticeState.Home(Load.Failed(e.userMessage))
-            }
+            val items = practice.session(SESSION_SIZE)
+            _state.value = if (items.isEmpty()) PracticeState.Home(Load.Ready(practice.stats())) else PracticeState.Playing(Round(items))
         }
     }
 
@@ -107,26 +102,12 @@ class PracticeViewModel(private val practice: PracticeApi) : ViewModel() {
     fun grade(grade: Grade) {
         val round = (_state.value as? PracticeState.Playing)?.round ?: return
         val item = round.current ?: return
-        pending += ReviewInput(item.word.slug, grade, Clock.System.now().toString())
-        viewModelScope.launch { upload() }
-
         val wasCorrect = item.question?.let { round.picked == it.correctIndex } ?: (grade != Grade.AGAIN)
         val next = round.copy(index = round.index + 1, picked = null, revealed = false, correct = round.correct + if (wasCorrect) 1 else 0)
-        _state.value = if (next.finished) PracticeState.Done(next.items.size, next.correct, pending.size) else PracticeState.Playing(next)
-        if (next.finished) viewModelScope.launch {
-            upload()
-            _state.update { if (it is PracticeState.Done) it.copy(unsent = pending.size) else it }
-        }
-    }
-
-    private suspend fun upload() = uploadLock.withLock {
-        if (pending.isEmpty()) return@withLock
-        val batch = pending.toList()
-        try {
-            practice.review(batch)
-            pending.removeAll(batch)
-        } catch (_: Exception) {
-            // Offline or server trouble: keep them for the next try
+        _state.value = if (next.finished) PracticeState.Done(next.items.size, next.correct) else PracticeState.Playing(next)
+        viewModelScope.launch {
+            practice.grade(item.word.slug, grade)
+            if (next.finished) sync.syncNow(full = false)
         }
     }
 
@@ -153,8 +134,8 @@ fun PracticeScreen(viewModel: PracticeViewModel) {
 }
 
 @Composable
-private fun PracticeHome(stats: PracticeStats, onStart: () -> Unit) {
-    if (stats.totalCards == 0L) {
+private fun PracticeHome(stats: LocalStats, onStart: () -> Unit) {
+    if (stats.totalCards == 0L && stats.newWords == 0L) {
         MessageBox("Save words from your feed and they'll show up here as flashcards.")
         return
     }
@@ -168,7 +149,7 @@ private fun PracticeHome(stats: PracticeStats, onStart: () -> Unit) {
             StatCard("New", stats.newWords.toString(), Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard("Streak", "${stats.streakDays} day${if (stats.streakDays == 1) "" else "s"}", Modifier.weight(1f))
+            StatCard("Streak", plural(stats.streakDays.toLong(), "day"), Modifier.weight(1f))
             StatCard("Today", "${stats.reviewedToday} answered", Modifier.weight(1f))
         }
         val ready = stats.reviewsDue + stats.newWords
@@ -176,7 +157,7 @@ private fun PracticeHome(stats: PracticeStats, onStart: () -> Unit) {
             Text(if (ready > 0) "Start practice" else "Nothing due. Come back later!")
         }
         Text(
-            "${stats.totalCards} words in your deck. Words come back just before you'd forget them.",
+            "${plural(stats.totalCards + stats.newWords, "word")} in your deck. Words come back just before you'd forget them.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -307,14 +288,14 @@ private fun PracticeDone(done: PracticeState.Done, onContinue: () -> Unit) {
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (done.unsent > 0) {
-            Text(
-                "${done.unsent} answer${if (done.unsent > 1) "s" else ""} not sent yet. They'll be sent when you're back online.",
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Text(
+            "Your answers are saved on the phone and sent to the server when you're online.",
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         TextButton(onClick = onContinue) { Text("Continue") }
     }
 }
+
+private fun plural(count: Long, noun: String) = "$count $noun${if (count == 1L) "" else "s"}"

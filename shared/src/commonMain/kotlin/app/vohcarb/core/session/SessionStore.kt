@@ -11,6 +11,8 @@ data class Session(val accessToken: String, val userId: Long, val displayName: S
 /** Keeps the session and the server address on the device. */
 class SessionStore(private val settings: Settings, private val defaultServerUrl: String) {
 
+    private val signOutListeners = mutableListOf<() -> Unit>()
+
     private val _session = MutableStateFlow(load())
     val session: StateFlow<Session?> = _session.asStateFlow()
 
@@ -28,7 +30,13 @@ class SessionStore(private val settings: Settings, private val defaultServerUrl:
 
     fun signOut() {
         listOf(TOKEN, USER_ID, DISPLAY_NAME, EMAIL).forEach(settings::remove)
+        signOutListeners.forEach { it() }
         _session.value = null
+    }
+
+    /** E.g. to delete the signed-out user's data from the phone. */
+    fun onSignOut(listener: () -> Unit) {
+        signOutListeners += listener
     }
 
     private fun load(): Session? {
