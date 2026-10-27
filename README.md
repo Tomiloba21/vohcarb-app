@@ -34,7 +34,7 @@ Debug builds allow plain HTTP; release builds don't.
 | Module | What |
 |---|---|
 | `shared/` | Almost everything: API client, view models and Compose UI, in `commonMain` |
-| `androidApp/` | The Android shell: `Application`, `MainActivity`, manifest, icon |
+| `androidApp/` | The Android shell: `Application`, `MainActivity`, manifest, icon, and the home-screen widget (`widget/`, Jetpack Glance) |
 
 Code in `shared/src/commonMain/kotlin/app/vohcarb/` is organised **by feature**, like the backend:
 
@@ -82,13 +82,15 @@ Screens read and write the phone's database (SQLDelight); `SyncEngine` keeps it 
 | 1 | Project setup, dev sign-in, feed, word screen, saved lists, search, practice (online), settings, credits |
 | 2 | Offline first: SQLDelight database, sync engine, offline feed and practice, sync status in Settings |
 | 3 | Groups: create, join by code, share invites, shared words with notes, "Add to group" on any word, group word of the day, weekly/monthly leaderboard, owner tools (new code, remove member, delete) |
+| 4 | Home-screen widget (Glance): word of the day with its meaning, works offline from the day's cache, tap to open the word |
 
 Next, roughly in order:
 
-1. **Home-screen widget** (Jetpack Glance) with the word of the day.
-2. **Push reminders** (FCM) once the Firebase project exists, and **Google Sign-In**. Background sync
+1. **Word games**: Name-Place-Animal-Thing, category sprint and complete-the-word, as daily group challenges
+   and later live rooms (needs backend work).
+3. **Push reminders** (FCM) once the Firebase project exists, and **Google Sign-In**. Background sync
    (WorkManager) fits here too; today the app syncs while it's open.
-3. Themes and polish; iOS on a Mac.
+4. Themes and polish; iOS on a Mac (an iOS widget would be a separate WidgetKit extension).
 
 Known limits: groups and user preferences need a connection (groups are shared, live data, so they're
 fetched fresh rather than synced); the History list shows words whose details haven't been fetched yet by

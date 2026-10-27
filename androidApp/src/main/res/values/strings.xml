@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Vohcarb</string>
+    <string name="word_widget_description">Today’s word, with its meaning</string>
 </resources>

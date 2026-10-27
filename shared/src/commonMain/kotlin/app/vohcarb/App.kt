@@ -21,6 +21,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -58,6 +59,8 @@ import app.vohcarb.settings.SettingsScreen
 import app.vohcarb.settings.SettingsViewModel
 import app.vohcarb.word.WordScreen
 import app.vohcarb.word.WordViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
 
 // Destinations. The four tabs, then screens that open on top of them.
@@ -81,22 +84,23 @@ private val tabs = listOf(
     Tab(SettingsRoute, "Settings", Icons.Outlined.Settings),
 )
 
+/** [wordToOpen]: a word the platform asks to show (e.g. from a home-screen widget); [onWordOpened] clears it. */
 @Composable
-fun App(container: AppContainer) {
+fun App(container: AppContainer, wordToOpen: StateFlow<String?> = MutableStateFlow(null), onWordOpened: () -> Unit = {}) {
     VohcarbTheme {
         Surface(Modifier.fillMaxSize()) {
             val session by container.sessions.session.collectAsStateWithLifecycle()
             if (session == null) {
                 SignInScreen(viewModel { SignInViewModel(container.auth, container.sessions) })
             } else {
-                MainScreens(container)
+                MainScreens(container, wordToOpen, onWordOpened)
             }
         }
     }
 }
 
 @Composable
-private fun MainScreens(container: AppContainer) {
+private fun MainScreens(container: AppContainer, wordToOpen: StateFlow<String?>, onWordOpened: () -> Unit) {
     val nav = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
     val entry by nav.currentBackStackEntryAsState()
@@ -105,6 +109,13 @@ private fun MainScreens(container: AppContainer) {
     val openWord: (String) -> Unit = { nav.navigate(WordRoute(it)) }
     // Catch up with the server whenever the app comes to the front (also right after sign-in)
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { container.sync.requestSync() }
+    val pendingWord by wordToOpen.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingWord) {
+        pendingWord?.let {
+            openWord(it)
+            onWordOpened()
+        }
+    }
 
     Scaffold(
         topBar = {
