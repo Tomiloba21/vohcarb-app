@@ -28,6 +28,8 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -39,7 +41,11 @@ import kotlin.test.assertTrue
 class GroupViewModelTest {
 
     private val dispatcher = StandardTestDispatcher()
+    // The mock engine answers on its own thread, so the list of requests is guarded.
+    private val requestsLock = Mutex()
     private val requests = mutableListOf<Pair<String, String>>() // "METHOD path" to body
+
+    private suspend fun recorded() = requestsLock.withLock { requests.toList() }
     private val routes = mutableMapOf<String, suspend MockRequestHandleScope.() -> HttpResponseData>()
 
     private val api = ApiClient(
@@ -52,7 +58,8 @@ class GroupViewModelTest {
 
     private suspend fun MockRequestHandleScope.handle(request: HttpRequestData): HttpResponseData {
         val key = "${request.method.value} ${request.url.encodedPath}"
-        requests += key to request.body.toByteArray().decodeToString()
+        val body = request.body.toByteArray().decodeToString()
+        requestsLock.withLock { requests += key to body }
         return routes[key]?.invoke(this) ?: respond("""{"title":"Not Found","detail":"No group 9 found"}""", HttpStatusCode.NotFound, jsonHeaders)
     }
 
@@ -111,7 +118,7 @@ class GroupViewModelTest {
         vm.addPickedWord()
         vm.state.first { it.addWord == null }
 
-        assertEquals("""{"word":"lucid","note":"clear"}""", requests.single { it.first == "POST /api/v1/groups/9/words" }.second)
+        assertEquals("""{"word":"lucid","note":"clear"}""", recorded().single { it.first == "POST /api/v1/groups/9/words" }.second)
         assertEquals(null, vm.state.value.addWord)
     }
 
