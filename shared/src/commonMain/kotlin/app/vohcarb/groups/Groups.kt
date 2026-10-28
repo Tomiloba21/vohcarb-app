@@ -78,7 +78,7 @@ class GroupsApi(private val api: ApiClient) {
 
     suspend fun removeMember(id: Long, userId: Long) = api.send(HttpMethod.Delete, "/api/v1/groups/$id/members/$userId")
 
-    suspend fun newInviteCode(id: Long): GroupDetailDto = api.post("/api/v1/groups/$id/invite-code", Unit)
+    suspend fun newInviteCode(id: Long): GroupDetailDto = api.postEmpty("/api/v1/groups/$id/invite-code")
 
     suspend fun words(id: Long, page: Int = 0, size: Int = 50): PageResponse<GroupWordDto> =
         api.get("/api/v1/groups/$id/words", "page" to page, "size" to size)

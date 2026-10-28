@@ -43,6 +43,14 @@ class ApiClient(
     suspend inline fun <reified B, reified T> patch(path: String, body: B): T =
         call(HttpMethod.Patch, path) { jsonBody(body) }.body()
 
+    /** A POST with no body (the action is in the path) that returns JSON. */
+    suspend inline fun <reified T> postEmpty(path: String): T = call(HttpMethod.Post, path).body()
+
+    /** For calls with a JSON body whose response doesn't matter (e.g. 204 No Content). */
+    suspend inline fun <reified B> sendJson(method: HttpMethod, path: String, body: B) {
+        call(method, path) { jsonBody(body) }
+    }
+
     /** For calls whose response body doesn't matter (e.g. 204 No Content). */
     suspend fun send(method: HttpMethod, path: String, vararg query: Pair<String, Any?>) {
         call(method, path, query)

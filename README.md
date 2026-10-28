@@ -52,7 +52,8 @@ Code in `shared/src/commonMain/kotlin/app/vohcarb/` is organised **by feature**,
 | `saved` | **Words**: your saved, liked, known and seen lists |
 | `groups` | **Groups**: create/join with invite codes, shared word list, group word of the day, leaderboard, members |
 | `search` | Prefix search over the catalog |
-| `practice` | **Practice**: spaced-repetition quiz run on the phone (`PracticeRepository`, `srs/Scheduler.kt`) |
+| `practice` | **Practice**: spaced-repetition quiz run on the phone (`PracticeRepository`, `srs/Scheduler.kt`), and the Flashcards / Games tabs |
+| `games` | **Daily word games** (Practice → Games, and each group's Games tab): Name-Place-Animal-Thing, category sprint, complete the word; results, leaderboards, voting on friends' names/places |
 | `settings` | **Settings**: level range, words per day, topics, reminder times; account; credits |
 | `user` | `/me` and preferences API |
 
@@ -83,16 +84,17 @@ Screens read and write the phone's database (SQLDelight); `SyncEngine` keeps it 
 | 2 | Offline first: SQLDelight database, sync engine, offline feed and practice, sync status in Settings |
 | 3 | Groups: create, join by code, share invites, shared words with notes, "Add to group" on any word, group word of the day, weekly/monthly leaderboard, owner tools (new code, remove member, delete) |
 | 4 | Home-screen widget (Glance): word of the day with its meaning, works offline from the day's cache, tap to open the word |
+| G2 | Daily word games (backend phase G1): challenge list for everyone and per group, timed play screens for the three games, results, leaderboards, group review votes |
 
 Next, roughly in order:
 
-1. **Word games**: Name-Place-Animal-Thing, category sprint and complete-the-word, as daily group challenges
-   and later live rooms (needs backend work).
-3. **Push reminders** (FCM) once the Firebase project exists, and **Google Sign-In**. Background sync
+1. **Live word games** (G3 backend, G4 app): play friends, quick match and open lobbies in real time; see the
+   backend's `docs/games.md`.
+2. **Push reminders** (FCM) once the Firebase project exists, and **Google Sign-In**. Background sync
    (WorkManager) fits here too; today the app syncs while it's open.
-4. Themes and polish; iOS on a Mac (an iOS widget would be a separate WidgetKit extension).
+3. Themes and polish; iOS on a Mac (an iOS widget would be a separate WidgetKit extension).
 
-Known limits: groups and user preferences need a connection (groups are shared, live data, so they're
+Known limits: groups, games and user preferences need a connection (groups are shared, live data, so they're
 fetched fresh rather than synced); the History list shows words whose details haven't been fetched yet by
 their slug; on iOS, "Share invite" will copy the text until a share sheet is added.
 
@@ -100,6 +102,7 @@ their slug; on iOS, "Share invite" will copy the text until a share sheet is add
 
 Word data: [Open English WordNet](https://github.com/globalwordnet/english-wordnet) (CC BY 4.0) and
 [FrequencyWords](https://github.com/hermitdave/FrequencyWords) (CC BY-SA 4.0), shown in the app's Credits screen.
+The games' place list comes from [GeoNames](https://www.geonames.org/) (CC BY 4.0) on the server.
 
 ## License
 

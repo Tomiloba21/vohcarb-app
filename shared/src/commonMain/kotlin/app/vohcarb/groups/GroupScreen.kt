@@ -61,10 +61,22 @@ import app.vohcarb.core.ui.Load
 import app.vohcarb.core.ui.LoadContent
 import app.vohcarb.core.ui.plural
 import app.vohcarb.core.ui.rememberShareText
+import app.vohcarb.games.DailyGamesViewModel
+import app.vohcarb.games.GameActions
+import app.vohcarb.games.dailyChallenges
 
 @Composable
-fun GroupScreen(viewModel: GroupViewModel, onBack: () -> Unit, onOpenWord: (String) -> Unit) {
+fun GroupScreen(
+    viewModel: GroupViewModel,
+    games: DailyGamesViewModel,
+    gameActions: GameActions,
+    onBack: () -> Unit,
+    onOpenWord: (String) -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val gamesState by games.state.collectAsStateWithLifecycle()
+    // Fresh each time the tab is shown (scores change as others play)
+    LaunchedEffect(state.tab) { if (state.tab == GroupTab.GAMES) games.load() }
     val snackbar = remember { SnackbarHostState() }
     val share = rememberShareText()
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
@@ -101,6 +113,17 @@ fun GroupScreen(viewModel: GroupViewModel, onBack: () -> Unit, onOpenWord: (Stri
                     }
                     when (state.tab) {
                         GroupTab.WORDS -> wordsTab(state.words, viewModel, onOpenWord)
+                        GroupTab.GAMES -> {
+                            item {
+                                Text(
+                                    "Your group's own daily challenges: the same for everyone in the group, compared on the group leaderboard.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                                )
+                            }
+                            dailyChallenges(gamesState, games::load, gameActions)
+                        }
                         GroupTab.LEADERBOARD -> leaderboardTab(state, viewModel)
                         GroupTab.MEMBERS -> membersTab(detail, viewModel)
                     }

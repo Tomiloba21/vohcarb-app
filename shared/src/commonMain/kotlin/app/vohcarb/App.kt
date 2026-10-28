@@ -44,11 +44,22 @@ import app.vohcarb.auth.SignInViewModel
 import app.vohcarb.core.ui.VohcarbTheme
 import app.vohcarb.feed.FeedScreen
 import app.vohcarb.feed.FeedViewModel
+import app.vohcarb.games.DailyGamesViewModel
+import app.vohcarb.games.GameActions
+import app.vohcarb.games.GameLeaderboardScreen
+import app.vohcarb.games.GameLeaderboardViewModel
+import app.vohcarb.games.GamePlayScreen
+import app.vohcarb.games.GamePlayViewModel
+import app.vohcarb.games.GameResultScreen
+import app.vohcarb.games.GameResultViewModel
+import app.vohcarb.games.GameReviewScreen
+import app.vohcarb.games.GameReviewViewModel
+import app.vohcarb.games.challengeTitle
 import app.vohcarb.groups.GroupScreen
 import app.vohcarb.groups.GroupViewModel
 import app.vohcarb.groups.GroupsScreen
 import app.vohcarb.groups.GroupsViewModel
-import app.vohcarb.practice.PracticeScreen
+import app.vohcarb.practice.PracticeAndGames
 import app.vohcarb.practice.PracticeViewModel
 import app.vohcarb.saved.SavedScreen
 import app.vohcarb.saved.SavedViewModel
@@ -70,6 +81,10 @@ import kotlinx.serialization.Serializable
 @Serializable object SettingsRoute
 @Serializable object GroupsRoute
 @Serializable data class GroupRoute(val id: Long)
+@Serializable data class GamePlayRoute(val challenge: String, val groupId: Long? = null)
+@Serializable data class GameResultRoute(val playId: Long, val groupId: Long? = null)
+@Serializable data class GameBoardRoute(val challenge: String, val groupId: Long? = null)
+@Serializable data class GameReviewRoute(val groupId: Long)
 @Serializable data class WordRoute(val slug: String)
 @Serializable object SearchRoute
 @Serializable object CreditsRoute
@@ -107,6 +122,12 @@ private fun MainScreens(container: AppContainer, wordToOpen: StateFlow<String?>,
     val destination = entry?.destination
     val currentTab = tabs.firstOrNull { tab -> destination?.hierarchy?.any { it.hasRoute(tab.route::class) } == true }
     val openWord: (String) -> Unit = { nav.navigate(WordRoute(it)) }
+    fun gameActions(groupId: Long?) = GameActions(
+        play = { nav.navigate(GamePlayRoute(it, groupId)) },
+        result = { nav.navigate(GameResultRoute(it, groupId)) },
+        leaderboard = { nav.navigate(GameBoardRoute(it, groupId)) },
+        review = groupId?.let { id -> { nav.navigate(GameReviewRoute(id)) } },
+    )
     // Catch up with the server whenever the app comes to the front (also right after sign-in)
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { container.sync.requestSync() }
     val pendingWord by wordToOpen.collectAsStateWithLifecycle()
@@ -140,7 +161,11 @@ private fun MainScreens(container: AppContainer, wordToOpen: StateFlow<String?>,
                 SavedScreen(viewModel { SavedViewModel(container.progress) }, openWord)
             }
             composable<PracticeRoute> {
-                PracticeScreen(viewModel { PracticeViewModel(container.practice, container.sync) })
+                PracticeAndGames(
+                    practice = viewModel { PracticeViewModel(container.practice, container.sync) },
+                    games = viewModel { DailyGamesViewModel(null, container.games) },
+                    gameActions = gameActions(null),
+                )
             }
             composable<GroupsRoute> {
                 GroupsScreen(viewModel { GroupsViewModel(container.groups) }, onOpenGroup = { nav.navigate(GroupRoute(it)) })
@@ -150,9 +175,43 @@ private fun MainScreens(container: AppContainer, wordToOpen: StateFlow<String?>,
                 val me = container.sessions.session.value?.userId ?: 0
                 GroupScreen(
                     viewModel { GroupViewModel(id, me, container.groups, container.catalog) },
+                    games = viewModel { DailyGamesViewModel(id, container.games) },
+                    gameActions = gameActions(id),
                     onBack = nav::popBackStack,
                     onOpenWord = openWord,
                 )
+            }
+            composable<GamePlayRoute> { entry ->
+                val route = entry.toRoute<GamePlayRoute>()
+                GamePlayScreen(
+                    viewModel { GamePlayViewModel(route.challenge, route.groupId, container.games) },
+                    title = challengeTitle(route.challenge),
+                    onClose = nav::popBackStack,
+                    onFinished = { playId ->
+                        nav.navigate(GameResultRoute(playId, route.groupId)) { popUpTo<GamePlayRoute> { inclusive = true } }
+                    },
+                )
+            }
+            composable<GameResultRoute> { entry ->
+                val route = entry.toRoute<GameResultRoute>()
+                GameResultScreen(
+                    viewModel { GameResultViewModel(route.playId, container.games) },
+                    onBack = nav::popBackStack,
+                    onLeaderboard = { nav.navigate(GameBoardRoute(it, route.groupId)) },
+                )
+            }
+            composable<GameBoardRoute> { entry ->
+                val route = entry.toRoute<GameBoardRoute>()
+                GameLeaderboardScreen(
+                    viewModel { GameLeaderboardViewModel(route.challenge, route.groupId, container.games) },
+                    challenge = route.challenge,
+                    inGroup = route.groupId != null,
+                    onBack = nav::popBackStack,
+                )
+            }
+            composable<GameReviewRoute> { entry ->
+                val route = entry.toRoute<GameReviewRoute>()
+                GameReviewScreen(viewModel { GameReviewViewModel(route.groupId, container.games) }, onBack = nav::popBackStack)
             }
             composable<SettingsRoute> {
                 SettingsScreen(

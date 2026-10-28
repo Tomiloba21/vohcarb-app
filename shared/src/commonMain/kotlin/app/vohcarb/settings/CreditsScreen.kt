@@ -35,6 +35,11 @@ private val credits = listOf(
         "https://github.com/hermitdave/FrequencyWords",
     ),
     Credit(
+        "GeoNames",
+        "Countries and cities that word games accept as places. Licensed CC BY 4.0.",
+        "https://www.geonames.org/",
+    ),
+    Credit(
         "Vohcarb",
         "Open-source app and backend, licensed Apache 2.0.",
         "https://github.com/Tomiloba21/vohcarb-backend",

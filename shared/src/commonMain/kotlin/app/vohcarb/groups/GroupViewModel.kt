@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class GroupTab(val label: String) { WORDS("Words"), LEADERBOARD("Leaderboard"), MEMBERS("Members") }
+enum class GroupTab(val label: String) { WORDS("Words"), GAMES("Games"), LEADERBOARD("Leaderboard"), MEMBERS("Members") }
 
 data class GroupWords(
     val items: List<GroupWordDto> = emptyList(),
