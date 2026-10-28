@@ -55,6 +55,8 @@ class GameActions(
     val leaderboard: (challenge: String) -> Unit,
     /** Group only: other members' names and places to accept or reject. */
     val review: (() -> Unit)? = null,
+    /** Live play against others (for a group: with its members). */
+    val live: (() -> Unit)? = null,
 )
 
 /** The Games page in the Practice tab: everyone's daily challenges. */
@@ -92,6 +94,24 @@ fun LazyListScope.dailyChallenges(state: Load<DailyOverviewDto>, onRetry: () -> 
             )
         }
         is Load.Ready -> {
+            actions.live?.let { live ->
+                item {
+                    Card(
+                        onClick = live,
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    ) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Play live", style = MaterialTheme.typography.titleLarge)
+                            Text(
+                                if (actions.review != null) "Play your group at the same time, 2 to 6 players."
+                                else "Play friends with a room code, anyone in the lobby, or a quick match. 2 to 6 players.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                }
+            }
             actions.review?.let { review ->
                 item {
                     TextButton(onClick = review, modifier = Modifier.padding(horizontal = 12.dp)) {

@@ -54,6 +54,7 @@ Code in `shared/src/commonMain/kotlin/app/vohcarb/` is organised **by feature**,
 | `search` | Prefix search over the catalog |
 | `practice` | **Practice**: spaced-repetition quiz run on the phone (`PracticeRepository`, `srs/Scheduler.kt`), and the Flashcards / Games tabs |
 | `games` | **Daily word games** (Practice → Games, and each group's Games tab): Name-Place-Animal-Thing, category sprint, complete the word; results, leaderboards, voting on friends' names/places |
+| `live` | **Live play**: lobby (quick match, rooms with codes, open and group rooms) and the room screen; `LiveConnection` keeps the room's WebSocket open (bearer header, reconnects, server-clock correction) |
 | `settings` | **Settings**: level range, words per day, topics, reminder times; account; credits |
 | `user` | `/me` and preferences API |
 
@@ -85,15 +86,14 @@ Screens read and write the phone's database (SQLDelight); `SyncEngine` keeps it 
 | 3 | Groups: create, join by code, share invites, shared words with notes, "Add to group" on any word, group word of the day, weekly/monthly leaderboard, owner tools (new code, remove member, delete) |
 | 4 | Home-screen widget (Glance): word of the day with its meaning, works offline from the day's cache, tap to open the word |
 | G2 | Daily word games (backend phase G1): challenge list for everyone and per group, timed play screens for the three games, results, leaderboards, group review votes |
+| G4 | Live play (backend phase G3): play friends by room code or from a group, anyone in the open lobby, or a quick match; countdown, rounds, votes, round results and final standings, answers handed in when time's up |
 | 5 | Themes (Settings → Appearance): "Match my phone" plus 9 presets with their own backgrounds (plain, grain, ruled lines, gradients, stars), your own photo with a dimming slider, your own colours, and the word font (serif, sans, mono, handwriting); the widget and status bar follow the theme |
 
 Next, roughly in order:
 
-1. **Live word games** (G3 backend, G4 app): play friends, quick match and open lobbies in real time; see the
-   backend's `docs/games.md`.
-2. **Push reminders** (FCM) once the Firebase project exists, and **Google Sign-In**. Background sync
+1. **Push reminders** (FCM) once the Firebase project exists, and **Google Sign-In**. Background sync
    (WorkManager) fits here too; today the app syncs while it's open.
-3. Themes and polish; iOS on a Mac (an iOS widget would be a separate WidgetKit extension).
+2. Polish; iOS on a Mac (an iOS widget would be a separate WidgetKit extension).
 
 Known limits: groups, games and user preferences need a connection (groups are shared, live data, so they're
 fetched fresh rather than synced); the History list shows words whose details haven't been fetched yet by

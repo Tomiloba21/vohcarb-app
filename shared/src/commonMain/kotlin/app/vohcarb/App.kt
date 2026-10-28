@@ -61,6 +61,10 @@ import app.vohcarb.games.GameReviewScreen
 import app.vohcarb.games.GameReviewViewModel
 import app.vohcarb.games.challengeTitle
 import app.vohcarb.groups.GroupScreen
+import app.vohcarb.live.LiveLobbyScreen
+import app.vohcarb.live.LiveLobbyViewModel
+import app.vohcarb.live.LiveRoomScreen
+import app.vohcarb.live.LiveRoomViewModel
 import app.vohcarb.groups.GroupViewModel
 import app.vohcarb.groups.GroupsScreen
 import app.vohcarb.groups.GroupsViewModel
@@ -91,6 +95,8 @@ import kotlinx.serialization.Serializable
 @Serializable data class GameResultRoute(val playId: Long, val groupId: Long? = null)
 @Serializable data class GameBoardRoute(val challenge: String, val groupId: Long? = null)
 @Serializable data class GameReviewRoute(val groupId: Long)
+@Serializable data class LiveLobbyRoute(val groupId: Long? = null)
+@Serializable data class LiveRoomRoute(val roomId: String)
 @Serializable data class WordRoute(val slug: String)
 @Serializable object SearchRoute
 @Serializable object CreditsRoute
@@ -140,6 +146,7 @@ private fun MainScreens(container: AppContainer, wordToOpen: StateFlow<String?>,
         result = { nav.navigate(GameResultRoute(it, groupId)) },
         leaderboard = { nav.navigate(GameBoardRoute(it, groupId)) },
         review = groupId?.let { id -> { nav.navigate(GameReviewRoute(id)) } },
+        live = { nav.navigate(LiveLobbyRoute(groupId)) },
     )
     // Catch up with the server whenever the app comes to the front (also right after sign-in)
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { container.sync.requestSync() }
@@ -220,6 +227,21 @@ private fun MainScreens(container: AppContainer, wordToOpen: StateFlow<String?>,
                     challenge = route.challenge,
                     inGroup = route.groupId != null,
                     onBack = nav::popBackStack,
+                )
+            }
+            composable<LiveLobbyRoute> { entry ->
+                val route = entry.toRoute<LiveLobbyRoute>()
+                LiveLobbyScreen(
+                    viewModel { LiveLobbyViewModel(route.groupId, container.live) },
+                    onBack = nav::popBackStack,
+                    onOpenRoom = { id -> nav.navigate(LiveRoomRoute(id)) },
+                )
+            }
+            composable<LiveRoomRoute> { entry ->
+                val route = entry.toRoute<LiveRoomRoute>()
+                LiveRoomScreen(
+                    viewModel { LiveRoomViewModel(route.roomId, container.live, container.liveConnection(route.roomId)) },
+                    onClose = nav::popBackStack,
                 )
             }
             composable<GameReviewRoute> { entry ->

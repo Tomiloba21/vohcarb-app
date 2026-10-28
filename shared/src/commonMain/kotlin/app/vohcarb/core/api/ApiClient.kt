@@ -5,6 +5,9 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
+import io.ktor.client.plugins.websocket.WebSockets
+import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.parameter
@@ -54,6 +57,17 @@ class ApiClient(
     /** For calls whose response body doesn't matter (e.g. 204 No Content). */
     suspend fun send(method: HttpMethod, path: String, vararg query: Pair<String, Any?>) {
         call(method, path, query)
+    }
+
+    /**
+     * Opens a WebSocket to [path] on the server (http → ws, https → wss), signed in like other calls with the
+     * bearer header on the handshake. Returns when the socket closes.
+     */
+    suspend fun webSocket(path: String, block: suspend DefaultClientWebSocketSession.() -> Unit) {
+        val base = session.serverUrl
+        if (base.isBlank()) throw ApiException(0, "No server address set")
+        val url = base.replaceFirst(Regex("^http"), "ws") + path
+        http.webSocket(urlString = url, request = { session.session.value?.let { bearerAuth(it.accessToken) } }, block = block)
     }
 
     @PublishedApi
@@ -108,6 +122,7 @@ class ApiClient(
                 connectTimeoutMillis = 10_000
                 requestTimeoutMillis = 20_000
             }
+            install(WebSockets) { pingIntervalMillis = 20_000 } // live games
         }
     }
 }

@@ -11,6 +11,8 @@ import app.vohcarb.db.VohcarbDatabase
 import app.vohcarb.feed.FeedQueue
 import app.vohcarb.games.GamesApi
 import app.vohcarb.groups.GroupsApi
+import app.vohcarb.live.LiveApi
+import app.vohcarb.live.LiveConnection
 import app.vohcarb.practice.PracticeApi
 import app.vohcarb.practice.PracticeRepository
 import app.vohcarb.progress.ProgressApi
@@ -43,6 +45,10 @@ class AppContainer(
     val user = UserApi(api)
     val groups = GroupsApi(api)
     val games = GamesApi(api)
+    val live = LiveApi(api)
+
+    /** A socket for one live room (the room screen runs it while it's open). */
+    fun liveConnection(roomId: String) = LiveConnection(api, roomId)
     private val progressApi = ProgressApi(api)
     private val practiceApi = PracticeApi(api)
 
