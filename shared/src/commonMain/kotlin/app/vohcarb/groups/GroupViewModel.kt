@@ -12,9 +12,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -66,12 +66,13 @@ class GroupViewModel(
     private val _state = MutableStateFlow(GroupState())
     val state = _state.asStateFlow()
 
-    private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 1)
-    val messages = _messages.asSharedFlow()
+    // Channels, not shared flows: an event sent before the screen starts listening is kept, not dropped.
+    private val _messages = Channel<String>(Channel.BUFFERED)
+    val messages = _messages.receiveAsFlow()
 
     /** Fires when the group is gone for us (left, deleted, removed): the screen closes. */
-    private val _closed = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val closed = _closed.asSharedFlow()
+    private val _closed = Channel<Unit>(Channel.CONFLATED)
+    val closed = _closed.receiveAsFlow()
 
     private var searchJob: Job? = null
 
@@ -125,7 +126,7 @@ class GroupViewModel(
             }
         } catch (e: Exception) {
             _state.update { it.copy(words = it.words.copy(loading = false)) }
-            if (!gone(e)) _messages.tryEmit(e.userMessage)
+            if (!gone(e)) _messages.trySend(e.userMessage)
         }
     }
 
@@ -141,7 +142,7 @@ class GroupViewModel(
             } catch (e: Exception) {
                 // 404: someone else removed it already, which is what we wanted
                 if ((e as? ApiException)?.isNotFound != true) {
-                    _messages.tryEmit(e.userMessage)
+                    _messages.trySend(e.userMessage)
                     return@launch
                 }
             }
@@ -182,11 +183,11 @@ class GroupViewModel(
             try {
                 groups.addWord(groupId, word.slug, form.note)
                 _state.update { it.copy(addWord = null) }
-                _messages.tryEmit("Added “${word.lemma}”")
+                _messages.trySend("Added “${word.lemma}”")
                 refreshWords()
             } catch (e: Exception) {
                 _state.update { it.copy(addWord = it.addWord?.copy(busy = false)) }
-                if (!gone(e)) _messages.tryEmit(e.userMessage)
+                if (!gone(e)) _messages.trySend(e.userMessage)
             }
         }
     }
@@ -224,16 +225,16 @@ class GroupViewModel(
         when (confirm) {
             Confirm.Leave -> act {
                 groups.leave(groupId)
-                _closed.tryEmit(Unit)
+                _closed.trySend(Unit)
             }
             Confirm.Delete -> act {
                 groups.delete(groupId)
-                _closed.tryEmit(Unit)
+                _closed.trySend(Unit)
             }
             Confirm.NewCode -> act {
                 val detail = groups.newInviteCode(groupId)
                 _state.update { it.copy(group = Load.Ready(detail)) }
-                _messages.tryEmit("New code: ${formatInviteCode(detail.inviteCode)}. The old one no longer works.")
+                _messages.trySend("New code: ${formatInviteCode(detail.inviteCode)}. The old one no longer works.")
             }
             is Confirm.RemoveMember -> act {
                 groups.removeMember(groupId, confirm.member.userId)
@@ -251,7 +252,7 @@ class GroupViewModel(
             try {
                 block()
             } catch (e: Exception) {
-                if (!gone(e)) _messages.tryEmit(e.userMessage)
+                if (!gone(e)) _messages.trySend(e.userMessage)
             }
         }
     }
@@ -259,8 +260,8 @@ class GroupViewModel(
     /** Groups we're not in answer 404: deleted, or we were removed. Close the screen. */
     private fun gone(e: Exception): Boolean {
         if ((e as? ApiException)?.isNotFound != true || _state.value.addWord != null) return false
-        _messages.tryEmit("This group no longer exists, or you're no longer in it.")
-        _closed.tryEmit(Unit)
+        _messages.trySend("This group no longer exists, or you're no longer in it.")
+        _closed.trySend(Unit)
         return true
     }
 }
