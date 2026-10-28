@@ -1,5 +1,6 @@
 package app.vohcarb.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -146,7 +147,12 @@ class SettingsViewModel(
 }
 
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel, snackbar: SnackbarHostState, onOpenCredits: () -> Unit) {
+fun SettingsScreen(
+    viewModel: SettingsViewModel,
+    snackbar: SnackbarHostState,
+    onOpenAppearance: () -> Unit,
+    onOpenCredits: () -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
     val syncStatus by viewModel.syncStatus.collectAsStateWithLifecycle()
@@ -158,6 +164,13 @@ fun SettingsScreen(viewModel: SettingsViewModel, snackbar: SnackbarHostState, on
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text("Settings", style = MaterialTheme.typography.displaySmall, modifier = Modifier.padding(horizontal = 24.dp))
+        ListItem(
+            headlineContent = { Text("Appearance") },
+            supportingContent = { Text("Themes, backgrounds, your photo, colours and the word font") },
+            trailingContent = { TextButton(onClick = onOpenAppearance) { Text("Change") } },
+            modifier = Modifier.padding(horizontal = 8.dp).clickable(onClick = onOpenAppearance),
+        )
+        HorizontalDivider(Modifier.padding(vertical = 4.dp))
         // Preferences live on the server, so they need a connection; everything else works offline.
         when (val s = state) {
             Load.Loading -> LinearProgressIndicator(Modifier.fillMaxWidth().padding(24.dp))

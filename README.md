@@ -43,7 +43,7 @@ Code in `shared/src/commonMain/kotlin/app/vohcarb/` is organised **by feature**,
 | `core/api` | `ApiClient` (Ktor): server address, bearer token, problem-details errors, sign-out on 401 |
 | `core/session` | `SessionStore`: token and server address, kept in `Settings` (SharedPreferences on Android) |
 | `sync` | `SyncEngine`: exchanges the phone's data with the server (below) |
-| `core/ui` | Theme (paper-and-ink colours, serif type) and shared components |
+| `core/ui` | Themes (`Themes.kt`: presets, backgrounds, custom colours, your photo; `ThemeStore`), the word font, and shared components |
 | `auth` | Dev sign-in |
 | `catalog` | Word DTOs, catalog API, and `WordCache` (words stored on the phone) |
 | `feed` | **Today**: one word per screen, swipe up for the next, from `FeedQueue` (words downloaded ahead) |
@@ -85,6 +85,7 @@ Screens read and write the phone's database (SQLDelight); `SyncEngine` keeps it 
 | 3 | Groups: create, join by code, share invites, shared words with notes, "Add to group" on any word, group word of the day, weekly/monthly leaderboard, owner tools (new code, remove member, delete) |
 | 4 | Home-screen widget (Glance): word of the day with its meaning, works offline from the day's cache, tap to open the word |
 | G2 | Daily word games (backend phase G1): challenge list for everyone and per group, timed play screens for the three games, results, leaderboards, group review votes |
+| 5 | Themes (Settings → Appearance): "Match my phone" plus 9 presets with their own backgrounds (plain, grain, ruled lines, gradients, stars), your own photo with a dimming slider, your own colours, and the word font (serif, sans, mono, handwriting); the widget and status bar follow the theme |
 
 Next, roughly in order:
 

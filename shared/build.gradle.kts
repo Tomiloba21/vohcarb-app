@@ -52,6 +52,7 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.kotlinx.coroutines.android)
             implementation(libs.sqldelight.android.driver)
+            implementation(libs.androidx.activity.compose) // the photo picker
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)

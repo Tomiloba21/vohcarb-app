@@ -6,6 +6,7 @@ import app.vohcarb.catalog.CatalogApi
 import app.vohcarb.catalog.WordCache
 import app.vohcarb.core.api.ApiClient
 import app.vohcarb.core.session.SessionStore
+import app.vohcarb.core.ui.ThemeStore
 import app.vohcarb.db.VohcarbDatabase
 import app.vohcarb.feed.FeedQueue
 import app.vohcarb.games.GamesApi
@@ -33,6 +34,7 @@ class AppContainer(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     val sessions = SessionStore(settings, defaultServerUrl)
+    val themes = ThemeStore(settings)
     private val api = ApiClient(sessions, httpClient)
     private val db = VohcarbDatabase(driver)
 

@@ -1,77 +1,101 @@
 package app.vohcarb.core.ui
 
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.random.Random
 
-// Paper and ink: warm off-white, deep blue-grey, one muted accent. Words are set in a big serif, like a dictionary.
+/** The font words and definitions are set in (see [WordFont]); everything else uses the system font. */
+val LocalWordFont = staticCompositionLocalOf<FontFamily> { FontFamily.Serif }
 
-private val Light = lightColorScheme(
-    primary = Color(0xFF2E3A59),
-    onPrimary = Color(0xFFFBF8F3),
-    primaryContainer = Color(0xFFDCE1EE),
-    onPrimaryContainer = Color(0xFF16203A),
-    secondary = Color(0xFFB0563B),
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFF6DED5),
-    onSecondaryContainer = Color(0xFF3D150A),
-    background = Color(0xFFFBF8F3),
-    onBackground = Color(0xFF1D1B18),
-    surface = Color(0xFFFBF8F3),
-    onSurface = Color(0xFF1D1B18),
-    surfaceVariant = Color(0xFFEDE7DD),
-    onSurfaceVariant = Color(0xFF5B564E),
-    surfaceContainer = Color(0xFFF3EEE6),
-    outline = Color(0xFF8C867C),
-)
+/** Body text for definitions and examples: the word font, a little larger than the default. */
+val DefinitionStyle: TextStyle
+    @Composable @ReadOnlyComposable
+    get() = TextStyle(fontFamily = LocalWordFont.current, fontSize = 20.sp, lineHeight = 30.sp)
 
-private val Dark = darkColorScheme(
-    primary = Color(0xFFB7C3E3),
-    onPrimary = Color(0xFF16203A),
-    primaryContainer = Color(0xFF34405F),
-    onPrimaryContainer = Color(0xFFDCE1EE),
-    secondary = Color(0xFFF0A58C),
-    onSecondary = Color(0xFF3D150A),
-    secondaryContainer = Color(0xFF6E3020),
-    onSecondaryContainer = Color(0xFFF6DED5),
-    background = Color(0xFF151413),
-    onBackground = Color(0xFFEAE4DA),
-    surface = Color(0xFF151413),
-    onSurface = Color(0xFFEAE4DA),
-    surfaceVariant = Color(0xFF2A2825),
-    onSurfaceVariant = Color(0xFFC9C2B7),
-    surfaceContainer = Color(0xFF201E1C),
-    outline = Color(0xFF948E84),
-)
-
-private val base = Typography()
-
-private val VohcarbTypography = base.copy(
-    displayLarge = base.displayLarge.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Medium),
-    displayMedium = base.displayMedium.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Medium),
-    displaySmall = base.displaySmall.copy(fontFamily = FontFamily.Serif),
-    headlineLarge = base.headlineLarge.copy(fontFamily = FontFamily.Serif),
-    headlineMedium = base.headlineMedium.copy(fontFamily = FontFamily.Serif),
-    headlineSmall = base.headlineSmall.copy(fontFamily = FontFamily.Serif),
-    titleLarge = base.titleLarge.copy(fontFamily = FontFamily.Serif),
-)
-
-/** Body text for definitions and examples: serif, a little larger than the default. */
-val DefinitionStyle = TextStyle(fontFamily = FontFamily.Serif, fontSize = 20.sp, lineHeight = 30.sp)
+private fun typography(word: FontFamily): Typography {
+    val base = Typography()
+    return base.copy(
+        displayLarge = base.displayLarge.copy(fontFamily = word, fontWeight = FontWeight.Medium),
+        displayMedium = base.displayMedium.copy(fontFamily = word, fontWeight = FontWeight.Medium),
+        displaySmall = base.displaySmall.copy(fontFamily = word),
+        headlineLarge = base.headlineLarge.copy(fontFamily = word),
+        headlineMedium = base.headlineMedium.copy(fontFamily = word),
+        headlineSmall = base.headlineSmall.copy(fontFamily = word),
+        titleLarge = base.titleLarge.copy(fontFamily = word),
+    )
+}
 
 @Composable
-fun VohcarbTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) Dark else Light,
-        typography = VohcarbTypography,
-        content = content,
-    )
+fun VohcarbTheme(look: Look, font: WordFont, content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalWordFont provides font.family) {
+        MaterialTheme(colorScheme = look.palette.colorScheme(), typography = typography(font.family), content = content)
+    }
+}
+
+/** The theme's background, behind every screen (their own backgrounds are see-through). */
+@Composable
+fun Backdrop(look: Look, modifier: Modifier = Modifier) {
+    val paper = look.palette.paper
+    when (val backdrop = look.backdrop) {
+        Backdrop.Plain -> Box(modifier.fillMaxSize().background(paper))
+        is Backdrop.Gradient -> Box(modifier.fillMaxSize().background(Brush.verticalGradient(backdrop.colors)))
+        Backdrop.Grain -> Canvas(modifier.fillMaxSize().background(paper)) {
+            val random = Random(7)
+            val speck = look.palette.ink.copy(alpha = 0.035f)
+            repeat((size.width * size.height / 900).toInt().coerceAtMost(4_000)) {
+                drawCircle(speck, radius = 1.2f, center = Offset(random.nextFloat() * size.width, random.nextFloat() * size.height))
+            }
+        }
+        Backdrop.Lines -> Canvas(modifier.fillMaxSize().background(paper)) {
+            val line = look.palette.ink.copy(alpha = 0.07f)
+            val gap = 36.dp.toPx()
+            var y = gap * 2
+            while (y < size.height) {
+                drawLine(line, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+                y += gap
+            }
+            val margin = 28.dp.toPx()
+            drawLine(look.palette.highlight.copy(alpha = 0.18f), Offset(margin, 0f), Offset(margin, size.height), strokeWidth = 1.dp.toPx())
+        }
+        is Backdrop.Stars -> Canvas(modifier.fillMaxSize().background(Brush.verticalGradient(backdrop.colors))) {
+            val random = Random(11)
+            repeat(140) {
+                val alpha = 0.15f + random.nextFloat() * 0.4f // faint enough not to fight with text
+                drawCircle(
+                    Color.White.copy(alpha = alpha),
+                    radius = (0.6f + random.nextFloat() * 1.6f).dp.toPx(),
+                    center = Offset(random.nextFloat() * size.width, random.nextFloat() * size.height),
+                )
+            }
+        }
+        is Backdrop.Photo -> {
+            val image by produceState<ImageBitmap?>(null, backdrop.path) { value = loadImage(backdrop.path) }
+            Box(modifier.fillMaxSize().background(paper)) {
+                image?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = backdrop.dim)))
+            }
+        }
+    }
 }

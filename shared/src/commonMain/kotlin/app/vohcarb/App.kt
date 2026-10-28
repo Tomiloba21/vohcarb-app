@@ -1,6 +1,8 @@
 package app.vohcarb
 
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -17,6 +19,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -25,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -41,6 +45,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import app.vohcarb.auth.SignInScreen
 import app.vohcarb.auth.SignInViewModel
+import app.vohcarb.core.ui.Backdrop
 import app.vohcarb.core.ui.VohcarbTheme
 import app.vohcarb.feed.FeedScreen
 import app.vohcarb.feed.FeedViewModel
@@ -65,6 +70,7 @@ import app.vohcarb.saved.SavedScreen
 import app.vohcarb.saved.SavedViewModel
 import app.vohcarb.search.SearchScreen
 import app.vohcarb.search.SearchViewModel
+import app.vohcarb.settings.AppearanceScreen
 import app.vohcarb.settings.CreditsScreen
 import app.vohcarb.settings.SettingsScreen
 import app.vohcarb.settings.SettingsViewModel
@@ -88,6 +94,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class WordRoute(val slug: String)
 @Serializable object SearchRoute
 @Serializable object CreditsRoute
+@Serializable object AppearanceRoute
 
 private data class Tab(val route: Any, val label: String, val icon: ImageVector)
 
@@ -102,13 +109,19 @@ private val tabs = listOf(
 /** [wordToOpen]: a word the platform asks to show (e.g. from a home-screen widget); [onWordOpened] clears it. */
 @Composable
 fun App(container: AppContainer, wordToOpen: StateFlow<String?> = MutableStateFlow(null), onWordOpened: () -> Unit = {}) {
-    VohcarbTheme {
-        Surface(Modifier.fillMaxSize()) {
-            val session by container.sessions.session.collectAsStateWithLifecycle()
-            if (session == null) {
-                SignInScreen(viewModel { SignInViewModel(container.auth, container.sessions) })
-            } else {
-                MainScreens(container, wordToOpen, onWordOpened)
+    val theme by container.themes.theme.collectAsStateWithLifecycle()
+    val look = theme.look(isSystemInDarkTheme())
+    VohcarbTheme(look, theme.font) {
+        Box(Modifier.fillMaxSize()) {
+            Backdrop(look)
+            // See-through, so the backdrop shows behind every screen
+            Surface(Modifier.fillMaxSize(), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onBackground) {
+                val session by container.sessions.session.collectAsStateWithLifecycle()
+                if (session == null) {
+                    SignInScreen(viewModel { SignInViewModel(container.auth, container.sessions) })
+                } else {
+                    MainScreens(container, wordToOpen, onWordOpened)
+                }
             }
         }
     }
@@ -219,6 +232,7 @@ private fun MainScreens(container: AppContainer, wordToOpen: StateFlow<String?>,
                         SettingsViewModel(container.user, container.catalog, container.sessions, container.sync, container.feed, container.progress)
                     },
                     snackbar,
+                    onOpenAppearance = { nav.navigate(AppearanceRoute) },
                     onOpenCredits = { nav.navigate(CreditsRoute) },
                 )
             }
@@ -232,6 +246,9 @@ private fun MainScreens(container: AppContainer, wordToOpen: StateFlow<String?>,
             }
             composable<SearchRoute> {
                 SearchScreen(viewModel { SearchViewModel(container.catalog) }, onBack = nav::popBackStack, onOpenWord = openWord)
+            }
+            composable<AppearanceRoute> {
+                AppearanceScreen(container.themes, onBack = nav::popBackStack)
             }
             composable<CreditsRoute> {
                 CreditsScreen(onBack = nav::popBackStack)
